@@ -1,0 +1,84 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\—î\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: d:\analyze ai\mes-backend
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.3.0, cov-7.1.0, mock-3.15.1, timeout-2.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 120.0s
+timeout method: thread
+timeout func_only: False
+collecting ... collected 4 items
+
+tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_empty ERROR [ 25%]
+tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_with_data ERROR [ 50%]
+tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_filter_by_station ERROR [ 75%]
+tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_stats ERROR [100%]
+
+=================================== ERRORS ====================================
+_______ ERROR at setup of TestAnomalyApiEndpoints.test_get_events_empty _______
+
+self = <test_anomaly_detector.TestAnomalyApiEndpoints object at 0x0000018941FBC350>
+tmp_path = WindowsPath('C:/Users/—î/AppData/Local/Temp/pytest-of-yang/pytest-119/test_get_events_empty0')
+
+    @pytest.fixture(autouse=True)
+    def _set_db_url(self, tmp_path):
+        """Set MES_DB_URL so the app lifespan can initialize the database."""
+        from app.models.database import _engine_cache
+        db_file = tmp_path / "anomaly_test.db"
+>       os.environ["MES_DB_URL"] = f"sqlite:///{db_file}"
+        ^^
+E       NameError: name 'os' is not defined. Did you forget to import 'os'
+
+tests\test_anomaly_detector.py:251: NameError
+_____ ERROR at setup of TestAnomalyApiEndpoints.test_get_events_with_data _____
+
+self = <test_anomaly_detector.TestAnomalyApiEndpoints object at 0x0000018942162150>
+tmp_path = WindowsPath('C:/Users/—î/AppData/Local/Temp/pytest-of-yang/pytest-119/test_get_events_with_data0')
+
+    @pytest.fixture(autouse=True)
+    def _set_db_url(self, tmp_path):
+        """Set MES_DB_URL so the app lifespan can initialize the database."""
+        from app.models.database import _engine_cache
+        db_file = tmp_path / "anomaly_test.db"
+>       os.environ["MES_DB_URL"] = f"sqlite:///{db_file}"
+        ^^
+E       NameError: name 'os' is not defined. Did you forget to import 'os'
+
+tests\test_anomaly_detector.py:251: NameError
+_ ERROR at setup of TestAnomalyApiEndpoints.test_get_events_filter_by_station _
+
+self = <test_anomaly_detector.TestAnomalyApiEndpoints object at 0x0000018942162480>
+tmp_path = WindowsPath('C:/Users/—î/AppData/Local/Temp/pytest-of-yang/pytest-119/test_get_events_filter_by_stat0')
+
+    @pytest.fixture(autouse=True)
+    def _set_db_url(self, tmp_path):
+        """Set MES_DB_URL so the app lifespan can initialize the database."""
+        from app.models.database import _engine_cache
+        db_file = tmp_path / "anomaly_test.db"
+>       os.environ["MES_DB_URL"] = f"sqlite:///{db_file}"
+        ^^
+E       NameError: name 'os' is not defined. Did you forget to import 'os'
+
+tests\test_anomaly_detector.py:251: NameError
+__________ ERROR at setup of TestAnomalyApiEndpoints.test_get_stats ___________
+
+self = <test_anomaly_detector.TestAnomalyApiEndpoints object at 0x0000018942162390>
+tmp_path = WindowsPath('C:/Users/—î/AppData/Local/Temp/pytest-of-yang/pytest-119/test_get_stats0')
+
+    @pytest.fixture(autouse=True)
+    def _set_db_url(self, tmp_path):
+        """Set MES_DB_URL so the app lifespan can initialize the database."""
+        from app.models.database import _engine_cache
+        db_file = tmp_path / "anomaly_test.db"
+>       os.environ["MES_DB_URL"] = f"sqlite:///{db_file}"
+        ^^
+E       NameError: name 'os' is not defined. Did you forget to import 'os'
+
+tests\test_anomaly_detector.py:251: NameError
+=========================== short test summary info ===========================
+ERROR tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_empty - NameError: name 'os' is not defined. Did you forget to import 'os'
+ERROR tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_with_data - NameError: name 'os' is not defined. Did you forget to import 'os'
+ERROR tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_events_filter_by_station - NameError: name 'os' is not defined. Did you forget to import 'os'
+ERROR tests/test_anomaly_detector.py::TestAnomalyApiEndpoints::test_get_stats - NameError: name 'os' is not defined. Did you forget to import 'os'
+============================== 4 errors in 0.51s ==============================

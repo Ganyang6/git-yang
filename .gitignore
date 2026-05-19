@@ -1,0 +1,151 @@
+# Python
+__pycache__/
+*.py[cod]
+env/
+venv/
+.venv/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+
+# Secrets
+secrets/
+*.key
+
+# Runtime data
+data/
+logs/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temp / build artifacts
+build_tmp/
+models/
+
+# Vite cache
+.vite/
+
+# Trae / Agent IDE configs
+.trae/
+.workbuddy/
+.learnings/
+
+# Root-level build artifacts (temp/dump files)
+/api_*.txt
+/build_*.txt
+/check_*.txt
+/docker_*.txt
+/e2e_*.txt
+/frontend_*.txt
+/inject*.txt
+/p9_*
+/t8_08_*
+/backend_size.txt
+/build_context_size.txt
+/build_output_new.txt
+/build_output_v2.txt
+/build_output_v3.txt
+/check_e2e.txt
+/check_worker.txt
+/check_worker2.txt
+/container_status.txt
+/findings.md
+/frontend_test_output.txt
+/gh_files.txt
+/import_test.txt
+/m1
+/memory_entities.json
+/nginx_config.txt
+/perc_now.txt
+/perception_logs.txt
+/perception_logs2.txt
+/perception_*.log
+/redis_*.txt
+/skill_install1.txt
+/skills_search*.txt
+/sqlite_*.txt
+/sse_*.txt
+/video_test_output.txt
+/wsl_list.txt
+/check_start.txt
+/check_stop.txt
+/check_up_fe.txt
+/check_warmup_*.txt
+/coderabbit_install.txt
+/perception_log_lines.txt
+/perception_status.log
+/redis_xlen_off.txt
+/redis_xrev_off.txt
+/test_*.txt
+/test_gap3_*
+/test_green3.txt
+/test_red3.txt
+/test_full_regression.txt
+/test_out.txt
+/test_p2new.txt
+/test_phase3.txt
+/test_review_fix.txt
+/test_worktime.txt
+/test_cam.txt
+/check_sqlite_*.py
+/inject*.py
+/restart_output.txt
+/mes_api_logs.txt
+/mes_beat_logs.txt
+/pull_python.txt
+/p9_*
+/t8_08_*
+/research_report_*.md
+/review_findings_*.md
+/code_review_*.md
+/security_audit_report_*.md
+/docker_audit_report_*.md
+/fix_verification_report_*.md
+/memory_*.md
+/bug_fix_report_*.md
+/check_*.txt
+/api_*.txt
+/e2e_*.txt
+/phase*_*.md
+/task_plan.md
+/perception_logs_*.txt
+/perception_*.txt
+
+# Frontend build artifacts
+mes-frontend/lint_*.log
+mes-frontend/npm_install.log
+mes-frontend/test_*.txt
+
+# Stale/redirect directories
+/analyze-ai/
+
+# Temp agent dirs (external IDE/tool projects)
+/Herman/
+
+# Node backup
+node_modules_old_*
+*.bak
+
+# OS metadata
+Thumbs.db

@@ -1,0 +1,79 @@
+# syntax = docker/dockerfile:1.12
+# MES API Dockerfile — 多阶段构建
+# FastAPI main process - uvicorn HTTP server
+#
+# NOTE: This image is for the API server, NOT the perception process.
+#       Use Dockerfile.perception for camera/MediaPipe workloads.
+
+# ========== 构建阶段 ==========
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# 系统依赖（编译用，最终阶段不会保留）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 先复制 requirements，利用 Docker 层缓存加速
+COPY mes-backend/requirements.txt ./
+
+# 过滤掉测试依赖
+RUN sed '/^pytest==/d;/^pytest$/d' requirements.txt > requirements.prod.txt \
+    && rm requirements.txt
+
+# 安装依赖（BuildKit cache mount 加速）
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com -r requirements.prod.txt
+
+# ========== 生产阶段 ==========
+FROM python:3.12-slim AS production
+
+WORKDIR /app
+
+# 最小化系统依赖（仅运行所需，不保留编译工具链）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libgomp1 \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# 从 builder 阶段复制已安装的 Python 包（不包含 pip 缓存）
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+
+# 复制应用代码（排除 tests/ .venv 等非生产文件）
+# .dockerignore 确保 tests/ 和 .venv 不会被复制进来
+COPY mes-backend/ ./models/ ./scripts/ ./config*.yaml ./
+
+# 使用 find 二次确保 tests/ 目录被清理
+RUN find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
+    find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
+    find . -type f -name "*.pyc" -delete 2>/dev/null; \
+    true
+
+# 创建模型和日志目录
+RUN mkdir -p /app/models /app/logs
+
+# N-P1-27: 非 root 用户运行
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "from app.main import app; print('ok')" || exit 1
+
+EXPOSE 8000
+
+# tini 作为 PID 1 初始化系统（正确处理信号转发）
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

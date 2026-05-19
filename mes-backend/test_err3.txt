@@ -1,0 +1,47 @@
+﻿============================= test session starts =============================
+collecting ... collected 3 items
+
+tests/test_phase3.py::TestRedisAdapter::test_adapter_init FAILED         [ 33%]
+tests/test_phase3.py::TestRedisAdapter::test_generate_frame_id FAILED    [ 66%]
+tests/test_phase3.py::TestRedisAdapter::test_stream_constants FAILED     [100%]
+
+================================== FAILURES ===================================
+_____________________ TestRedisAdapter.test_adapter_init ______________________
+
+self = <test_phase3.TestRedisAdapter object at 0x0000022AFB25ECF0>
+
+    def test_adapter_init(self):
+        from app.perception.redis_adapter import PerceptionAdapter
+>       adapter = PerceptionAdapter(host="localhost", port=6379, db=0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: PerceptionAdapter.__init__() got an unexpected keyword argument 'host'
+
+tests\test_phase3.py:747: TypeError
+___________________ TestRedisAdapter.test_generate_frame_id ___________________
+
+self = <test_phase3.TestRedisAdapter object at 0x0000022AFB25EF60>
+
+    def test_generate_frame_id(self):
+        from app.perception.redis_adapter import PerceptionAdapter
+>       adapter = PerceptionAdapter(host="localhost", port=6379, db=0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: PerceptionAdapter.__init__() got an unexpected keyword argument 'host'
+
+tests\test_phase3.py:752: TypeError
+___________________ TestRedisAdapter.test_stream_constants ____________________
+
+self = <test_phase3.TestRedisAdapter object at 0x0000022AFB2F57F0>
+
+    def test_stream_constants(self):
+        from app.perception.redis_adapter import PerceptionAdapter
+>       assert hasattr(PerceptionAdapter, 'STREAM_POSE_FRAMES')
+E       AssertionError: assert False
+E        +  where False = hasattr(<class 'app.perception.redis_adapter.PerceptionAdapter'>, 'STREAM_POSE_FRAMES')
+
+tests\test_phase3.py:760: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_phase3.py::TestRedisAdapter::test_adapter_init - TypeError: PerceptionAdapter.__init__() got an unexpected keyword argument 'host'
+FAILED tests/test_phase3.py::TestRedisAdapter::test_generate_frame_id - TypeError: PerceptionAdapter.__init__() got an unexpected keyword argument 'host'
+FAILED tests/test_phase3.py::TestRedisAdapter::test_stream_constants - AssertionError: assert False
+ +  where False = hasattr(<class 'app.perception.redis_adapter.PerceptionAdapter'>, 'STREAM_POSE_FRAMES')
+============================== 3 failed in 0.42s ==============================

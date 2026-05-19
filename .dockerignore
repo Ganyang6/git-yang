@@ -1,0 +1,12 @@
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.git
+**/.env
+**/.env.local
+**/secrets
+**/node_modules
+**/*.txt
+!mes-backend/requirements.txt
+**/tests/
+**/*.md

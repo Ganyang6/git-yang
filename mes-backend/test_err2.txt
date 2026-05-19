@@ -1,0 +1,43 @@
+﻿============================= test session starts =============================
+collecting ... collected 1 item
+
+tests/test_phase3.py::TestLineBalance::test_full_ecrs FAILED             [100%]
+
+================================== FAILURES ===================================
+_______________________ TestLineBalance.test_full_ecrs ________________________
+
+self = <test_phase3.TestLineBalance object at 0x00000211FC6B5880>
+client = <starlette.testclient.TestClient object at 0x00000211FC6B5D90>
+
+    def test_full_ecrs(self, client):
+        resp = client.get("/api/line-balance/full")
+        methods = [e["method"] for e in resp.json()["data"]["ecrsItems"]]
+>       assert "Rearrange" in methods
+E       AssertionError: assert 'Rearrange' in []
+
+tests\test_phase3.py:593: AssertionError
+----------------------------- Captured log setup ------------------------------
+ERROR    mes_backend.redis:redis_client.py:111 Redis connection failed: Error 22 connecting to localhost:6379. 远程计算机拒绝网络连接。.
+WARNING  mes_backend:main.py:79 Redis not available (non-critical): Error 22 connecting to localhost:6379. 远程计算机拒绝网络连接。.
+ERROR    mes_backend.influxdb:influxdb_client.py:128 InfluxDB initialization failed: HTTPConnection(host='localhost', port=8086): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。
+WARNING  mes_backend:main.py:99 InfluxDB initialization failed (non-critical)
+ERROR    mes_backend.consumers:stream_consumers.py:191 ActionEventConsumer error: Redis client not connected. Call connect() first.
+Traceback (most recent call last):
+  File "D:\analyze ai\mes-backend\app\services\stream_consumers.py", line 179, in _consume_loop
+    messages = await self._redis.consume_stream(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\analyze ai\mes-backend\app\core\redis_client.py", line 245, in consume_stream
+    r = self._ensure_connected()
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\analyze ai\mes-backend\app\core\redis_client.py", line 123, in _ensure_connected
+    raise RuntimeError("Redis client not connected. Call connect() first.")
+RuntimeError: Redis client not connected. Call connect() first.
+============================== warnings summary ===============================
+tests/test_phase3.py::TestLineBalance::test_full_ecrs
+  C:\Users\楊\AppData\Local\Programs\Python\Python312\Lib\site-packages\influxdb_client\client\bucket_api.py:50: DeprecationWarning: org_id is deprecated; use org
+    warnings.warn("org_id is deprecated; use org", DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_phase3.py::TestLineBalance::test_full_ecrs - AssertionError: assert 'Rearrange' in []
+======================== 1 failed, 1 warning in 13.41s ========================

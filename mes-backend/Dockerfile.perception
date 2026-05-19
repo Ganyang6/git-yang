@@ -1,0 +1,77 @@
+# MES Perception Process Dockerfile
+# Runs camera capture + MediaPipe pose/hand detection as a standalone container.
+# Publishes frame data to Redis Streams for downstream consumers.
+#
+# Key differences from Dockerfile.backend:
+#   - Includes OpenCV (with GUI support for debug) + MediaPipe
+#   - Excludes FastAPI / SQLAlchemy / InfluxDB client (not needed)
+#   - Entrypoint is the perception main.py, not uvicorn
+#   - Requires camera device passthrough and Redis access
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Use USTC Debian mirror for faster apt-get in China
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true
+
+# System dependencies for OpenCV camera capture + MediaPipe
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libgomp1 \
+    libgl1 \
+    libgles2 \
+    libegl1 \
+    tini \
+    v4l-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install perception-specific Python dependencies
+# mediapipe 0.10.14: uses Tasks API only (mp.solutions removed in 0.10.10+).
+# MEDIAPIPE_DISABLE_GPU=1 forces CPU delegate, avoiding GLESv2/EGL dependency.
+RUN pip install --no-cache-dir --timeout 300 -i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn \
+    "opencv-python-headless>=4.8.0,<5.0.0" \
+    "mediapipe==0.10.14" \
+    "numpy>=1.24.0,<3.0.0" \
+    "pyyaml>=6.0,<7.0.0" \
+    "redis>=5.0.0"
+
+# Copy perception source (directory-level COPY for maintainability)
+COPY mes-backend/config.py ./config.py
+COPY mes-backend/pose_estimator.py ./pose_estimator.py
+COPY mes-backend/hand_estimator.py ./hand_estimator.py
+COPY mes-backend/camera_manager.py ./camera_manager.py
+COPY mes-backend/frame_buffer.py ./frame_buffer.py
+COPY mes-backend/video_optimizer.py ./video_optimizer.py
+COPY mes-backend/main.py ./main.py
+COPY mes-backend/command_listener.py ./command_listener.py
+COPY mes-backend/process_video.py ./process_video.py
+COPY mes-backend/models/ ./models/
+COPY mes-backend/app/core/ ./app/core/
+COPY mes-backend/app/perception/ ./app/perception/
+
+# Copy config file
+COPY mes-backend/config.yaml /app/config/config.yaml
+
+# N-P1-27: Run as non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Healthcheck: verify camera module and Redis connectivity
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=3 \
+    CMD python -c "from camera_manager import CameraManager; from app.perception.redis_adapter import PerceptionAdapter; print('ok')" || exit 1
+
+# Force CPU inference path (no GPU/EGL in Docker containers)
+ENV MEDIAPIPE_DISABLE_GPU=1
+
+# Default: run perception with no display, Redis adapter enabled.
+# Override via docker-compose command or docker run
+# tini as PID 1: handles signal forwarding and zombie reaping,
+# preventing MediaPipe/TFLite internal threads from hanging on signals.
+ENTRYPOINT ["tini", "--"]
+CMD ["python", "main.py", "--no-display", "--config", "/app/config/config.yaml"]

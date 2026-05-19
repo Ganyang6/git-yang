@@ -1,0 +1,9 @@
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.git
+**/.env
+**/*.txt
+!requirements.txt
+!mes-backend/requirements.txt
+**/node_modules

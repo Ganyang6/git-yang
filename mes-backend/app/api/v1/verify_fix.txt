@@ -1,0 +1,55 @@
+## 任务：重建 perception 镜像 + 端到端验证
+
+### 背景
+宿主机 `command_listener.py` 已修改（新增 `_update_task_status`），但容器内还是旧代码。需要 rebuild 让新代码生效。
+
+### 步骤
+
+1. **重建 perception 镜像**:
+```bash
+cd "/mnt/d/analyze ai"
+docker compose build perception
+```
+（`--no-cache` 可选，不加也行）
+
+2. **重启 perception**:
+```bash
+docker compose up -d perception
+sleep 8
+docker compose ps perception
+```
+
+3. **验证新代码已部署**:
+```bash
+docker exec mes-perception grep -n "_update_task_status\|via listener" /app/command_listener.py
+```
+应该输出包含 `_update_task_status` 的行号
+
+4. **端到端测试**:
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"changeme"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('access_token',''))")
+
+curl -s -X POST http://127.0.0.1:8000/api/v1/video/upload \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/tmp/test_videos/test_final.mp4" \
+  -F "station_id=WS-01"
+echo ""
+
+sleep 15
+
+curl -s http://127.0.0.1:8000/api/v1/video/tasks -H "Authorization: Bearer $TOKEN"
+echo ""
+
+# Show the status field
+echo "=== STATUS_CHECK ==="
+curl -s http://127.0.0.1:8000/api/v1/video/tasks -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); ts=d.get('data',[]); [print(f'{t[\"task_id\"][:8]}... status={t[\"status\"]}') for t in ts]" 2>/dev/null
+
+# Check perception logs for the callback
+echo "=== CALLBACK_LOG ==="
+docker logs mes-perception 2>&1 | grep -iE "hash updated|via listener|completed status|not found" | tail -5
+```
+
+### 验证标准
+任务状态应为 `completed`
+
+Print ALL output verbatim.

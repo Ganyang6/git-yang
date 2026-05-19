@@ -1,0 +1,22 @@
+opencv-python>=4.8.0,<5.0.0
+mediapipe>=0.10.0,<0.11.0
+numpy>=1.24.0,<3.0.0
+pyyaml>=6.0,<7.0.0
+fastapi>=0.110.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
+sqlalchemy>=2.0.0,<3.0.0
+pydantic>=2.0.0,<3.0.0
+httpx>=0.25.0,<1.0.0
+pytest>=7.0.0
+pytest-timeout>=2.2.0
+# Phase 3 dependencies
+python-multipart>=0.0.9
+influxdb-client>=1.36.0
+PyJWT>=2.8.0
+passlib[bcrypt]>=1.7.4
+# Phase 4 dependencies
+celery[redis]==5.6.3
+onnxruntime>=1.17.0
+# Phase 5 dependencies
+reportlab>=4.0.0
+prometheus-client==0.21.1

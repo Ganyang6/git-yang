@@ -1,0 +1,124 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\楊\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: D:\analyze ai\mes-backend
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.3.0, cov-7.1.0, mock-3.15.1, timeout-2.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 120.0s
+timeout method: thread
+timeout func_only: False
+collecting ... collected 18 items
+
+tests/test_video_optimization.py::TestFrameDownsampler::test_downscale_4k_to_target_resolution FAILED [  5%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_no_downscale_for_small_frames FAILED [ 11%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_preserve_aspect_ratio FAILED [ 16%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_disable_downsampling_when_zero FAILED [ 22%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_use_inter_area_for_downscaling FAILED [ 27%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_should_detect_on_interval_frames FAILED [ 33%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_skip_non_interval_frames FAILED [ 38%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_custom_detection_interval FAILED [ 44%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_every_frame_mode FAILED [ 50%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_calculate_core_landmarks_score_only FAILED [ 55%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_handle_empty_landmarks FAILED [ 61%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_include_correct_core_landmarks FAILED [ 66%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_low_core_visibility_reduces_score FAILED [ 72%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_enhance_low_light_frame FAILED [ 77%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_preserve_bright_frames FAILED [ 83%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_return_same_shape_and_dtype FAILED [ 88%]
+tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_processes_4k_frame FAILED [ 94%]
+tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_skips_inference_on_non_interval FAILED [100%]
+
+================================== FAILURES ===================================
+_________ TestFrameDownsampler.test_downscale_4k_to_target_resolution _________
+tests\test_video_optimization.py:16: in test_downscale_4k_to_target_resolution
+    from video_optimizer import FrameDownsampler
+E   ModuleNotFoundError: No module named 'video_optimizer'
+___________ TestFrameDownsampler.test_no_downscale_for_small_frames ___________
+tests\test_video_optimization.py:28: in test_no_downscale_for_small_frames
+    from video_optimizer import FrameDownsampler
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_______________ TestFrameDownsampler.test_preserve_aspect_ratio _______________
+tests\test_video_optimization.py:39: in test_preserve_aspect_ratio
+    from video_optimizer import FrameDownsampler
+E   ModuleNotFoundError: No module named 'video_optimizer'
+__________ TestFrameDownsampler.test_disable_downsampling_when_zero ___________
+tests\test_video_optimization.py:52: in test_disable_downsampling_when_zero
+    from video_optimizer import FrameDownsampler
+E   ModuleNotFoundError: No module named 'video_optimizer'
+__________ TestFrameDownsampler.test_use_inter_area_for_downscaling ___________
+tests\test_video_optimization.py:63: in test_use_inter_area_for_downscaling
+    from video_optimizer import FrameDownsampler
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_________ TestFrameSkipDetector.test_should_detect_on_interval_frames _________
+tests\test_video_optimization.py:80: in test_should_detect_on_interval_frames
+    from video_optimizer import FrameSkipDetector
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_____________ TestFrameSkipDetector.test_skip_non_interval_frames _____________
+tests\test_video_optimization.py:92: in test_skip_non_interval_frames
+    from video_optimizer import FrameSkipDetector
+E   ModuleNotFoundError: No module named 'video_optimizer'
+____________ TestFrameSkipDetector.test_custom_detection_interval _____________
+tests\test_video_optimization.py:101: in test_custom_detection_interval
+    from video_optimizer import FrameSkipDetector
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_________________ TestFrameSkipDetector.test_every_frame_mode _________________
+tests\test_video_optimization.py:113: in test_every_frame_mode
+    from video_optimizer import FrameSkipDetector
+E   ModuleNotFoundError: No module named 'video_optimizer'
+__ TestCoreLandmarkScoreCalculator.test_calculate_core_landmarks_score_only ___
+tests\test_video_optimization.py:126: in test_calculate_core_landmarks_score_only
+    from video_optimizer import CoreLandmarkScoreCalculator
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_________ TestCoreLandmarkScoreCalculator.test_handle_empty_landmarks _________
+tests\test_video_optimization.py:144: in test_handle_empty_landmarks
+    from video_optimizer import CoreLandmarkScoreCalculator
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_____ TestCoreLandmarkScoreCalculator.test_include_correct_core_landmarks _____
+tests\test_video_optimization.py:153: in test_include_correct_core_landmarks
+    from video_optimizer import CoreLandmarkScoreCalculator
+E   ModuleNotFoundError: No module named 'video_optimizer'
+___ TestCoreLandmarkScoreCalculator.test_low_core_visibility_reduces_score ____
+tests\test_video_optimization.py:162: in test_low_core_visibility_reduces_score
+    from video_optimizer import CoreLandmarkScoreCalculator
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_______________ TestCLAHEEnhancer.test_enhance_low_light_frame ________________
+tests\test_video_optimization.py:193: in test_enhance_low_light_frame
+    from video_optimizer import CLAHEEnhancer
+E   ModuleNotFoundError: No module named 'video_optimizer'
+________________ TestCLAHEEnhancer.test_preserve_bright_frames ________________
+tests\test_video_optimization.py:206: in test_preserve_bright_frames
+    from video_optimizer import CLAHEEnhancer
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_____________ TestCLAHEEnhancer.test_return_same_shape_and_dtype ______________
+tests\test_video_optimization.py:218: in test_return_same_shape_and_dtype
+    from video_optimizer import CLAHEEnhancer
+E   ModuleNotFoundError: No module named 'video_optimizer'
+_________ TestVideoOptimizerPipeline.test_pipeline_processes_4k_frame _________
+tests\test_video_optimization.py:234: in test_pipeline_processes_4k_frame
+    from video_optimizer import VideoOptimizerPipeline
+E   ModuleNotFoundError: No module named 'video_optimizer'
+__ TestVideoOptimizerPipeline.test_pipeline_skips_inference_on_non_interval ___
+tests\test_video_optimization.py:253: in test_pipeline_skips_inference_on_non_interval
+    from video_optimizer import VideoOptimizerPipeline
+E   ModuleNotFoundError: No module named 'video_optimizer'
+=========================== short test summary info ===========================
+FAILED tests/test_video_optimization.py::TestFrameDownsampler::test_downscale_4k_to_target_resolution - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameDownsampler::test_no_downscale_for_small_frames - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameDownsampler::test_preserve_aspect_ratio - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameDownsampler::test_disable_downsampling_when_zero - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameDownsampler::test_use_inter_area_for_downscaling - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameSkipDetector::test_should_detect_on_interval_frames - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameSkipDetector::test_skip_non_interval_frames - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameSkipDetector::test_custom_detection_interval - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestFrameSkipDetector::test_every_frame_mode - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_calculate_core_landmarks_score_only - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_handle_empty_landmarks - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_include_correct_core_landmarks - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_low_core_visibility_reduces_score - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCLAHEEnhancer::test_enhance_low_light_frame - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCLAHEEnhancer::test_preserve_bright_frames - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestCLAHEEnhancer::test_return_same_shape_and_dtype - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_processes_4k_frame - ModuleNotFoundError: No module named 'video_optimizer'
+FAILED tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_skips_inference_on_non_interval - ModuleNotFoundError: No module named 'video_optimizer'
+============================= 18 failed in 0.33s ==============================

@@ -1,0 +1,32 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\楊\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: D:\analyze ai\mes-backend
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.3.0, cov-7.1.0, mock-3.15.1, timeout-2.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 120.0s
+timeout method: thread
+timeout func_only: False
+collecting ... collected 18 items
+
+tests/test_video_optimization.py::TestFrameDownsampler::test_downscale_4k_to_target_resolution PASSED [  5%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_no_downscale_for_small_frames PASSED [ 11%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_preserve_aspect_ratio PASSED [ 16%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_disable_downsampling_when_zero PASSED [ 22%]
+tests/test_video_optimization.py::TestFrameDownsampler::test_use_inter_area_for_downscaling PASSED [ 27%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_should_detect_on_interval_frames PASSED [ 33%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_skip_non_interval_frames PASSED [ 38%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_custom_detection_interval PASSED [ 44%]
+tests/test_video_optimization.py::TestFrameSkipDetector::test_every_frame_mode PASSED [ 50%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_calculate_core_landmarks_score_only PASSED [ 55%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_handle_empty_landmarks PASSED [ 61%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_include_correct_core_landmarks PASSED [ 66%]
+tests/test_video_optimization.py::TestCoreLandmarkScoreCalculator::test_low_core_visibility_reduces_score PASSED [ 72%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_enhance_low_light_frame PASSED [ 77%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_preserve_bright_frames PASSED [ 83%]
+tests/test_video_optimization.py::TestCLAHEEnhancer::test_return_same_shape_and_dtype PASSED [ 88%]
+tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_processes_4k_frame PASSED [ 94%]
+tests/test_video_optimization.py::TestVideoOptimizerPipeline::test_pipeline_skips_inference_on_non_interval PASSED [100%]
+
+============================= 18 passed in 0.26s ==============================

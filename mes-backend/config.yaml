@@ -1,0 +1,47 @@
+# Cameras:
+#   - device_id: 0
+#     name: "Camera_0"
+#     enabled: true
+#     resolution_width: 1280
+#     resolution_height: 720
+#     fps: 30
+#     backend: "auto"
+#
+# Video file source mode (alternative to camera):
+#   - video_path: "/app/data/videos/assembly_line.mp4"
+#     name: "Video_WS01"
+#     station_id: "WS-01"
+#     enabled: true
+#     loop: false          # true = loop playback
+
+cameras:
+  - device_id: 0
+    name: "Camera_0"
+    enabled: true
+    resolution_width: 1280
+    resolution_height: 720
+    fps: 30
+    backend: "auto"
+
+pose:
+  model_complexity: 1      # 0=Lite(最快), 1=Full(平衡), 2=Heavy(最准)
+  smooth: true             # 平滑处理，减少抖动
+  enable_segmentation: false
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+  static_image_mode: false
+
+buffer:
+  max_queue_size: 10       # 帧缓冲队列大小
+  drop_old_frames: true    # True=丢弃旧帧保证实时性
+
+performance:
+  target_fps: 30           # 目标帧率
+  max_latency_ms: 33.0     # 最大延迟（ms）
+  num_landmarks: 33        # MediaPipe 33个关键点
+
+hand_estimation:
+  enabled: true             # 开启手部检测，支持屏幕录制视频分析
+  num_hands: 2              # 最大检测手数 (1-2)
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5

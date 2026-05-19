@@ -1,0 +1,15 @@
+            # Update task status in Redis hash directly
+            # NOTE: Uses a separate Redis connection because the main `r` 
+            # connection is in PubSub subscriber mode and cannot execute
+            # regular commands like HGET/HSET.
+            try:
+                status_r = redis.Redis.from_url(
+                    redis_url, decode_responses=True,
+                    socket_connect_timeout=3,
+                    socket_timeout=3,
+                )
+                status_r.ping()
+                _update_task_status(status_r, task_id, "completed")
+                status_r.close()
+            except Exception as exc:
+                logger.error("Failed to update task status via separate connection: %s", exc)

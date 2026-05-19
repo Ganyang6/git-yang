@@ -1,0 +1,355 @@
+# MES Edge AI Worktime Analysis System
+# Full production Docker Compose with 6 services
+#
+# Usage:
+#   cp .env.example .env.local   # configure secrets
+#   docker compose up -d          # start all services
+#   docker compose logs -f        # view logs
+#   docker compose down           # stop all services
+#
+# NOTE: Sensitive values (JWT_SECRET_KEY, INFLUXDB_TOKEN, etc.) are
+# managed via Docker secrets. Each secret is mounted at /run/secrets/<name>
+# inside the container and consumed via *_FILE env vars. See:
+#   secrets/   directory (gitignored, not tracked)
+#   app/core/config.py  _env_or_file() helper for *_FILE fallback
+
+services:
+  # ── Redis: message bus + cache + Celery broker ─────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mes-redis
+    # N-P1-28: password authentication for Redis
+    command: >
+      redis-server
+      --maxmemory 600mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD:-mes-redis-2026}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-mes-redis-2026}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a $$REDIS_PASSWORD ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - mes-net
+    # Redis is internal only, not exposed to host
+
+  # ── InfluxDB: time-series storage ──────────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    container_name: mes-influxdb
+    ports:
+      # Bind to localhost only; external access blocked by default.
+      # Remove this block entirely in production hardening.
+      - "127.0.0.1:${INFLUXDB_EXPOSE_PORT:-8086}:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_ORG: mes-factory
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?INFLUXDB_ADMIN_PASSWORD must be set in .env}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - mes-net
+
+  # ── API: FastAPI main process ─────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: mes-backend:latest
+    container_name: mes-api
+    ports:
+      # N-P1-30: bind to localhost only, Nginx reverse-proxies external traffic
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ./mes-backend/config.yaml:/app/config/config.yaml:ro
+      - ./mes-backend/app:/app/app:ro
+      - sqlite_data:/app/data
+      - ./data/videos:/app/data/videos
+      - ./logs/backend:/app/logs
+    environment:
+      PYTHONUNBUFFERED: "1"
+      MEDIAPIPE_DISABLE_GPU: "1"
+      # Secrets via Docker secrets files (read by _env_or_file() in config.py)
+      JWT_SECRET_KEY_FILE: /run/secrets/jwt_secret
+      INFLUXDB_TOKEN_FILE: /run/secrets/influxdb_token
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+      # Redis (password embedded in URL, keep as env var)
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      # InfluxDB
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_ORG: mes-factory
+      INFLUXDB_BUCKET: metrics
+      # Database
+      MES_DB_URL: sqlite:////app/data/mes.db
+    secrets:
+      - jwt_secret
+      - influxdb_token
+      - deepseek_api_key
+    depends_on:
+      redis:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import uvicorn; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - mes-net
+
+  # ── Perception: camera capture + MediaPipe detection ──────────────
+  perception:
+    build:
+      context: .
+      dockerfile: Dockerfile.perception
+    image: mes-perception:latest
+    container_name: mes-perception
+    # Default: run command listener (subscribes to Redis for video tasks).
+    # Override with: docker compose run perception python main.py --video ...
+    command: ["python", "command_listener.py"]
+    # Camera device passthrough (N-P0-3: removed privileged, use specific capabilities)
+    # Uncomment below when using real camera. In VIDEO_MODE, no device mapping needed.
+    # cap_add:
+    #   - SYS_RAWIO
+    # devices:
+    #   - ${CAMERA_DEVICE:-/dev/video0}:/dev/video0
+    volumes:
+      - ./mes-backend/config.yaml:/app/config/config.yaml:ro
+      - ./data/videos:/app/data/videos:ro
+      - ./mes-backend/app:/app/app:ro
+    environment:
+      PYTHONUNBUFFERED: "1"
+      MEDIAPIPE_DISABLE_GPU: "1"
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      # Camera
+      CAMERA_ID: ${CAMERA_ID:-0}
+      # Video playback mode
+      VIDEO_MODE: ${VIDEO_MODE:-false}
+      VIDEO_PATH: ${VIDEO_PATH:-}
+      STATION_ID: ${STATION_ID:-WS-01}
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: "2.0"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    networks:
+      - mes-net
+
+  # ── Worker: Celery async task processor ───────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: mes-backend:latest
+    container_name: mes-worker
+    command: celery -A app.core.celery_app worker --pool=solo --loglevel=info
+    volumes:
+      - ./mes-backend/config.yaml:/app/config/config.yaml:ro
+      - ./mes-backend/app:/app/app:ro
+      - sqlite_data:/app/data
+      - ./logs/worker:/app/logs
+      - ./models:/app/models
+    environment:
+      PYTHONUNBUFFERED: "1"
+      JWT_SECRET_KEY_FILE: /run/secrets/jwt_secret
+      INFLUXDB_TOKEN_FILE: /run/secrets/influxdb_token
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_ORG: mes-factory
+      INFLUXDB_BUCKET: metrics
+      MES_DB_URL: sqlite:////app/data/mes.db
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/1
+    secrets:
+      - jwt_secret
+      - influxdb_token
+      - deepseek_api_key
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import celery; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 60s
+    restart: unless-stopped
+    networks:
+      - mes-net
+
+  # ── Beat: Celery periodic task scheduler ──────────────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: mes-backend:latest
+    container_name: mes-beat
+    command: celery -A app.core.celery_app beat --loglevel=info
+    volumes:
+      - ./mes-backend/config.yaml:/app/config/config.yaml:ro
+      - ./mes-backend/app:/app/app:ro
+      - ./logs/beat:/app/logs
+    environment:
+      PYTHONUNBUFFERED: "1"
+      JWT_SECRET_KEY_FILE: /run/secrets/jwt_secret
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-mes-redis-2026}@redis:6379/1
+    secrets:
+      - jwt_secret
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import celery; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - mes-net
+
+  # ── Frontend: Nginx static file server + reverse proxy ────────────
+  frontend:
+    build:
+      context: ./mes-frontend
+      dockerfile: ../Dockerfile.frontend
+      args:
+        VITE_API_BASE: ""
+    image: mes-frontend:latest
+    container_name: mes-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mes-net
+
+# ── Secrets: sensitive values mounted as files at /run/secrets/<name> ──
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.key
+  influxdb_token:
+    file: ./secrets/influxdb_token.key
+  # redis_password: used via REDIS_PASSWORD env var in the redis service command;
+  # the secret file is kept for consistency / future migration to *_FILE pattern.
+  redis_password:
+    file: ./secrets/redis_password.key
+  deepseek_api_key:
+    file: ./secrets/deepseek_api_key.key
+  influxdb_admin_password:
+    file: ./secrets/influxdb_admin_password.key
+
+# ── Volumes: persistent data ────────────────────────────────────────
+volumes:
+  redis_data:
+    driver: local
+  influxdb_data:
+    driver: local
+  sqlite_data:
+    driver: local
+
+# ── Networks ────────────────────────────────────────────────────────
+networks:
+  mes-net:
+    driver: bridge
+    # No explicit IP range; Docker auto-assigns from 172.17-31.x.x
+
+# ── Optional: Ollama local LLM (requires 16GB+ total memory) ────────
+# Uncomment below when deploying on hardware with sufficient memory.
+#
+# ollama:
+#   image: ollama/ollama
+#   container_name: mes-ollama
+#   ports:
+#     - "127.0.0.1:11434:11434"
+#   volumes:
+#     - ollama_data:/root/.ollama
+#   environment:
+#     - OLLAMA_MAX_LOADED_MODELS=1
+#     - OLLAMA_NUM_PARALLEL=1
+#     - OLLAMA_KEEP_ALIVE=5m
+#     - OLLAMA_GPU_LAYERS=0
+#   deploy:
+#     resources:
+#       limits:
+#         memory: 4G
+#         cpus: "2.0"
+#   restart: unless-stopped
+#   networks:
+#     - mes-net
+#
+# volumes:
+#   ollama_data:
+#     driver: local

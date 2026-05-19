@@ -1,0 +1,27 @@
+Task exception was never retrieved
+future: <Task finished name='Task-140' coro=<MetricPublisher._publish_loop() done, defined at d:\analyze ai\mes-backend\app\services\stream_consumers.py:438> exception=ValueError('Redis URL must specify one of the following schemes (redis://, rediss://, unix://)')>
+Traceback (most recent call last):
+  File "d:\analyze ai\mes-backend\app\services\stream_consumers.py", line 443, in _publish_loop
+    await self._publish_metrics()
+  File "d:\analyze ai\mes-backend\app\services\stream_consumers.py", line 492, in _publish_metrics
+    await self._redis.publish_metric(metric_data)
+  File "d:\analyze ai\mes-backend\app\core\redis_client.py", line 160, in publish_metric
+    r = await self.ensure_connected()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "d:\analyze ai\mes-backend\app\core\redis_client.py", line 111, in ensure_connected
+    await self.connect()
+  File "d:\analyze ai\mes-backend\app\core\redis_client.py", line 76, in connect
+    self._pool = aioredis.from_url(
+                 ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\—î\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\utils.py", line 16, in from_url
+    return Redis.from_url(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\—î\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\client.py", line 176, in from_url
+    connection_pool = ConnectionPool.from_url(url, **kwargs)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\—î\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1094, in from_url
+    url_options = parse_url(url)
+                  ^^^^^^^^^^^^^^
+  File "C:\Users\—î\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1026, in parse_url
+    raise ValueError(
+ValueError: Redis URL must specify one of the following schemes (redis://, rediss://, unix://)
