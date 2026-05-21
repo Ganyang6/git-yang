@@ -11,6 +11,7 @@ Run as a separate process:
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from celery.schedules import crontab
@@ -47,6 +48,11 @@ celery.conf.beat_schedule = {
     "cleanup-stale-completed-tasks": {
         "task": "cleanup_stale_completed_tasks",
         "schedule": crontab(minute="*/30"),
+    },
+    # Every 60 seconds: aggregate pending process segments into worktime records
+    "aggregate-pending-segments": {
+        "task": "aggregate_pending_segments",
+        "schedule": timedelta(seconds=300),
     },
 }
 

@@ -28,6 +28,8 @@ from app.models.schemas import (
 )
 from app.services.therblig_mapper import map_action_to_therblig
 
+from app.core.celery_app import celery
+
 logger = logging.getLogger(__name__)
 
 
@@ -571,3 +573,44 @@ def get_heatmap_stats(
         data.append([h_idx, st_idx, pct])
 
     return {"stations": all_stations, "hours": hours, "data": data}
+
+
+@celery.task(name="aggregate_pending_segments", ignore_result=True)
+def aggregate_pending_segments() -> None:
+    """
+    Periodic fallback: aggregate unaggregated process segments.
+
+    Runs every 5 minutes via Celery Beat. Only calls aggregate_segments()
+    if there are segments with NULL worktime_record_id.  This is the
+    fallback path — the fast path is event-driven (flush_segments channel).
+    """
+    import logging
+    logger = logging.getLogger("mes_backend.aggregator")
+    try:
+        from app.models.database import get_session, ProcessSegment
+        session = get_session()
+        try:
+            # Check if there are unaggregated segments first
+            unagg = session.query(ProcessSegment).filter(
+                ProcessSegment.worktime_record_id.is_(None)
+            ).count()
+            if unagg == 0:
+                logger.debug("No unaggregated segments, skipping periodic aggregation")
+                return
+
+            logger.info("Periodic fallback: %d unaggregated segments found", unagg)
+            for shift in ("morning", "afternoon", "night"):
+                aggregate_segments(session, station_id=None, shift=shift)
+            session.commit()
+            logger.info(
+                "Periodic fallback aggregation completed "
+                "(%d segments processed, all stations, all shifts)",
+                unagg,
+            )
+        except Exception as exc:
+            session.rollback()
+            logger.error("Periodic fallback aggregation failed: %s", exc)
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.error("Periodic fallback task error: %s", exc)

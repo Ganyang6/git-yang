@@ -771,6 +771,8 @@ class MetricAggregator:
     manageable unit that can be started / stopped from the lifespan.
     """
 
+    FLUSH_CHANNEL = "channel:flush_segments"
+
     def __init__(
         self,
         redis_client: RedisClient,
@@ -786,15 +788,85 @@ class MetricAggregator:
             redis_client, "worker_pose_frame"
         )
         self._publisher = MetricPublisher(redis_client)
+        self._flush_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         """Start PoseFrameConsumer, ActionEventConsumer, and periodic publisher."""
         await self.pose_frame_consumer.start()
         await self.action_event_consumer.start()
         await self._publisher.start(metric_consumer=self)
+        # Start flush_segments listener
+        self._flush_task = asyncio.create_task(self._flush_listener())
 
     async def stop(self) -> None:
         """Stop the publisher first, then both consumers."""
         await self._publisher.stop()
         await self.action_event_consumer.stop()
         await self.pose_frame_consumer.stop()
+        # Stop flush listener
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def _flush_listener(self) -> None:
+        """Subscribe to flush_segments channel and trigger immediate aggregation.
+
+        When a video pipeline completes, command_listener.py publishes a
+        flush_segments message.  This listener receives it and calls
+        aggregate_segments() for the relevant station.
+        """
+        import json
+        logger = logging.getLogger("mes_backend.consumers")
+        pubsub = None
+        try:
+            pool = await self._redis.ensure_connected()
+            pubsub = pool.pubsub()
+            await pubsub.subscribe(self.FLUSH_CHANNEL)
+            logger.info("Flush listener subscribed to %s", self.FLUSH_CHANNEL)
+            while True:
+                msg = await pubsub.get_message(timeout=1.0)
+                if msg is None or msg["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(msg["data"])
+                    station_id = data.get("station_id", "default")
+                except (json.JSONDecodeError, KeyError) as exc:
+                    logger.warning("Invalid flush msg: %s", exc)
+                    continue
+                logger.info(
+                    "Flush aggregation triggered for station=%s",
+                    station_id,
+                )
+                from app.models.database import get_session
+                session = get_session()
+                try:
+                    for shift in ("morning", "afternoon", "night"):
+                        from app.services.worktime_aggregator import aggregate_segments
+                        aggregate_segments(session, station_id=station_id, shift=shift)
+                    session.commit()
+                    logger.info(
+                        "Flush aggregation completed for station=%s",
+                        station_id,
+                    )
+                except Exception as exc:
+                    session.rollback()
+                    logger.error(
+                        "Flush aggregation failed for station=%s: %s",
+                        station_id, exc,
+                    )
+                finally:
+                    session.close()
+        except asyncio.CancelledError:
+            logger.info("Flush listener stopped")
+        except Exception as exc:
+            logger.error("Flush listener error: %s", exc)
+        finally:
+            if pubsub is not None:
+                try:
+                    await pubsub.unsubscribe(self.FLUSH_CHANNEL)
+                    await pubsub.close()
+                except Exception:
+                    pass

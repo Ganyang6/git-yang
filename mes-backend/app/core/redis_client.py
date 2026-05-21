@@ -74,6 +74,7 @@ CHANNEL_EVENTS = "channel:events"
 CHANNEL_ALERTS = "channel:alerts"
 CHANNEL_VIDEO_PROGRESS = "channel:video_progress"
 CHANNEL_VIDEO_COMMANDS = "channel:video_commands"
+CHANNEL_FLUSH_SEGMENTS = "channel:flush_segments"
 
 
 class RedisClient:

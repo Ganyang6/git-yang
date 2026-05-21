@@ -110,6 +110,48 @@ def _update_task_status(
                 pass
 
 
+FLUSH_CHANNEL = "channel:flush_segments"
+
+
+def _flush_aggregation(
+    redis_url: str, task_id: str, station_id: str
+) -> None:
+    """Publish a flush_segments message after video pipeline completes.
+
+    Opens a fresh Redis connection, publishes to the flush_segments
+    channel, then closes it.  The API container's stream_consumer
+    subscribes to this channel and calls aggregate_segments().
+    """
+    conn = None
+    try:
+        conn = redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+        )
+        payload = json.dumps({
+            "task_id": task_id,
+            "station_id": station_id,
+        })
+        conn.publish(FLUSH_CHANNEL, payload)
+        logger.info(
+            "Flush aggregation published: task=%s station=%s",
+            task_id, station_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to publish flush aggregation: %s (task=%s)",
+            exc, task_id,
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 # ── Main loop ──────────────────────────────────────────────────────────
 
 
@@ -209,6 +251,7 @@ def main():
                 if result.returncode == 0:
                     logger.info("Pipeline completed: task=%s", task_id)
                     _update_task_status(redis_url, task_id, "completed")
+                    _flush_aggregation(redis_url, task_id, station_id)
                 else:
                     logger.error(
                         "Pipeline exited with code %d: task=%s",
