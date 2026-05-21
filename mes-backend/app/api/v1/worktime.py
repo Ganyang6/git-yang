@@ -230,14 +230,14 @@ def get_recent_worktime(
             "id": s.id,
             "operation": s.action,
             "station": s.station_id,
-            "actual": round(s.duration_ms, 1),
+            "actual": round(s.duration_ms / 1000.0, 1),  # ms → s
             "standard": 0.0,
             "efficiency": 0.0,
         }
         for s in segments
     ]
     return ApiResponse(
-        data={"items": items, "total": len(items)},
+        data=items,
         timestamp=time.time(),
     )
 
