@@ -54,11 +54,7 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 # .dockerignore 确保 tests/ 和 .venv 不会被复制进来
 COPY mes-backend/ ./models/ ./scripts/ ./config*.yaml ./
 
-# 使用 find 二次确保 tests/ 目录被清理
-RUN find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
-    find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
-    find . -type f -name "*.pyc" -delete 2>/dev/null; \
-    true
+# .dockerignore 已控制文件排除，无需 find 二次清理
 
 # 创建模型和日志目录
 RUN mkdir -p /app/models /app/logs

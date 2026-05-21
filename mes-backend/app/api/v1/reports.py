@@ -158,7 +158,10 @@ def product_mix(
         "#73c0de", "#3ba272", "#fc8452", "#9a60b4",
     ]
 
-    total = sum(r.total_qty for r in results) if results else 1
+    if not results:
+        return ApiResponse(data=[], timestamp=time.time())
+
+    total = sum(r.total_qty for r in results)
     items = [
         {
             "label": r.product,
@@ -428,7 +431,10 @@ def top_customers(
         Customer.id
     ).order_by(func.sum(Order.quantity).desc()).limit(10).all()
 
-    total_qty = sum(r.total_qty or 0 for r in results) if results else 1
+    if not results:
+        return ApiResponse(data=[], timestamp=time.time())
+
+    total_qty = sum(r.total_qty or 0 for r in results)
     items = [
         {
             "name": r.name,

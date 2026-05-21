@@ -65,8 +65,12 @@ USER appuser
 # Healthcheck: verify Python process is alive (no camera hardware dependency)
 # Uses a simple Python check instead of importing camera_manager which
 # may try to access camera hardware (not available in all environments).
-HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=3 \
-    CMD python -c "print('ok')" || exit 1
+HEALTHCHECK --interval=15s --timeout=10s --start-period=15s --retries=3 \
+    CMD sh -c "pgrep -f 'main.py' || exit 1"
+# N-TODO: Consider multi-stage build to reduce image size.
+# Move build-time dependencies (python3-dev, build-essential, cmake) to a builder stage,
+# similar to Dockerfile.backend. The final stage should only contain runtime deps.
+# See Dockerfile.backend for reference pattern.
 
 # Force CPU inference path (no GPU/EGL in Docker containers)
 ENV MEDIAPIPE_DISABLE_GPU=1

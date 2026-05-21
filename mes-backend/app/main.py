@@ -115,15 +115,8 @@ async def lifespan(app: FastAPI):
     influxdb_client = None
     try:
         from app.core.influxdb_client import InfluxDBClient as IdbClient
-        from app.core.config import InfluxDBConfig
 
-        idb_cfg = InfluxDBConfig(
-            url=cfg.influxdb.url,
-            token=cfg.influxdb.token,
-            org=cfg.influxdb.org,
-            bucket=cfg.influxdb.bucket,
-            longterm_bucket=cfg.influxdb.longterm_bucket,
-        )
+        idb_cfg = cfg.influxdb
         # In test environment, use 1s timeout instead of 5s default
         is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
         if is_test:
@@ -276,21 +269,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Error closing AI Gateway: %s", e)
 
-    # Shutdown: close Redis
-    if redis_client is not None:
-        try:
-            await redis_client.close()
-        except Exception as e:
-            logger.warning("Error closing Redis: %s", e)
-
-    # Shutdown: close InfluxDB
-    if influxdb_client is not None:
-        try:
-            influxdb_client.close()
-        except Exception as e:
-            logger.warning("Error closing InfluxDB: %s", e)
-
-    # Shutdown: flush open segments
+    # Shutdown: flush open segments BEFORE closing Redis/InfluxDB
     logger.info("Shutting down, flushing open segments...")
     try:
         from app.services.worktime_aggregator import save_segment, aggregate_segments
@@ -310,6 +289,20 @@ async def lifespan(app: FastAPI):
             logger.info("Flushed %d open segments on shutdown", len(events))
     except Exception as e:
         logger.error("Error flushing segments on shutdown (potential data loss): %s", e)
+
+    # Shutdown: close Redis
+    if redis_client is not None:
+        try:
+            await redis_client.close()
+        except Exception as e:
+            logger.warning("Error closing Redis: %s", e)
+
+    # Shutdown: close InfluxDB
+    if influxdb_client is not None:
+        try:
+            influxdb_client.close()
+        except Exception as e:
+            logger.warning("Error closing InfluxDB: %s", e)
 
     logger.info("Shutdown complete")
 
@@ -390,7 +383,7 @@ app.include_router(video_router)
 
 
 # Development/testing: expose a controlled error endpoint to validate global error handling
-if os.environ.get("ENV", "PROD").upper() == "TEST":
+if bool(os.environ.get("PYTEST_CURRENT_TEST")):
     @app.get("/test/error")
     async def test_error_endpoint():
         from app.core.errors import AppError

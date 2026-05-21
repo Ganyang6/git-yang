@@ -16,6 +16,7 @@ All metric calculations conform to spec_metrics_formulas.md.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -38,13 +39,15 @@ _MAX_SEGMENT_QUERY_LIMIT = 50000
 
 # In-memory cache: dict by key -> (timestamp, data, ttl_seconds)
 _ctx_cache: dict = {}
+_ctx_cache_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
 
 def _get_cached(key: str, ttl: float = 30.0) -> object | None:
     """Get value from in-memory cache if not expired."""
-    entry = _ctx_cache.get(key)
+    with _ctx_cache_lock:
+        entry = _ctx_cache.get(key)
     if entry is not None and time.time() - entry[0] < ttl:
         return entry[1]
     return None
@@ -52,12 +55,14 @@ def _get_cached(key: str, ttl: float = 30.0) -> object | None:
 
 def _set_cache(key: str, data: object) -> None:
     """Set value in in-memory cache."""
-    _ctx_cache[key] = (time.time(), data)
+    with _ctx_cache_lock:
+        _ctx_cache[key] = (time.time(), data)
 
 
 def _clear_cache() -> None:
     """Clear the in-memory cache (for testing)."""
-    _ctx_cache.clear()
+    with _ctx_cache_lock:
+        _ctx_cache.clear()
 
 router = APIRouter(tags=["dashboard"])
 

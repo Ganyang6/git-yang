@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -36,43 +37,52 @@ security = HTTPBearer(auto_error=False)
 # In-memory login rate limiter: {ip: [timestamp, ...]}
 # NOTE: In multi-worker deployments, use Redis-backed rate limiting for accuracy.
 _login_rate_limit: Dict[str, List[float]] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 60.0  # seconds
 
 # Cached JWT secret to avoid reloading config on every request
 _jwt_secret_cache: str | None = None
+_jwt_secret_lock = threading.Lock()
 # Cached token expiry (normal_hours, remember_hours)
 _token_expire_cache: tuple[int, int] | None = None
+_token_expire_lock = threading.Lock()
 
 
 def _get_jwt_secret() -> str:
     """Load JWT secret from config or env (cached after first call).
 
-    Raises SystemExit if JWT_SECRET_KEY is not configured,
+    Raises HTTPException (503) if JWT_SECRET_KEY is not configured,
     per spec_security_auth.md Section 2.3 (>= 32 bytes, from env).
     """
     global _jwt_secret_cache
+    # Fast path: already cached (no lock needed for read)
     if _jwt_secret_cache is not None:
         return _jwt_secret_cache
 
-    from app.core.config import load_app_config
-    cfg = load_app_config()
-    secret = cfg.auth.jwt_secret_key
-    if not secret:
-        logger.error(
-            "JWT_SECRET_KEY not set in config or env. "
-            "Generate one: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
-        )
-        raise SystemExit(
-            "FATAL: JWT_SECRET_KEY is required. "
-            "Set it via environment variable or config.yaml."
-        )
-    if len(secret) < 32:
-        logger.warning(
-            "JWT_SECRET_KEY is only %d bytes (recommended: >= 32). Consider regenerating.",
-            len(secret),
-        )
-    _jwt_secret_cache = secret
+    with _jwt_secret_lock:
+        # Double-check after acquiring lock
+        if _jwt_secret_cache is not None:
+            return _jwt_secret_cache
+
+        from app.core.config import load_app_config
+        cfg = load_app_config()
+        secret = cfg.auth.jwt_secret_key
+        if not secret:
+            logger.error(
+                "JWT_SECRET_KEY not set in config or env. "
+                "Generate one: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="JWT_SECRET_KEY is required. Set it via environment variable or config.yaml.",
+            )
+        if len(secret) < 32:
+            logger.warning(
+                "JWT_SECRET_KEY is only %d bytes (recommended: >= 32). Consider regenerating.",
+                len(secret),
+            )
+        _jwt_secret_cache = secret
     return secret
 
 
@@ -82,11 +92,15 @@ def _get_token_expire(remember: bool = False) -> int:
     if _token_expire_cache is not None:
         return _token_expire_cache[1] if remember else _token_expire_cache[0]
 
-    from app.core.config import load_app_config
-    cfg = load_app_config()
-    normal = cfg.auth.token_expire_hours
-    remember_h = cfg.auth.token_remember_days * 24
-    _token_expire_cache = (normal, remember_h)
+    with _token_expire_lock:
+        if _token_expire_cache is not None:
+            return _token_expire_cache[1] if remember else _token_expire_cache[0]
+
+        from app.core.config import load_app_config
+        cfg = load_app_config()
+        normal = cfg.auth.token_expire_hours
+        remember_h = cfg.auth.token_remember_days * 24
+        _token_expire_cache = (normal, remember_h)
     return remember_h if remember else normal
 
 
@@ -138,8 +152,10 @@ def _hash_password(plain: str) -> str:
         salt = _bcrypt.gensalt(rounds=12)
         return _bcrypt.hashpw(plain.encode("utf-8"), salt).decode("utf-8")
     except ImportError:
-        raise SystemExit(
-            "FATAL: bcrypt is required. Install with: pip install bcrypt"
+        logger.error("bcrypt is required. Install with: pip install bcrypt")
+        raise HTTPException(
+            status_code=503,
+            detail="Password hashing library not available (bcrypt required)",
         )
 
 
@@ -215,18 +231,20 @@ def login(req: LoginRequest, request: Request):
         _client_ip = request.client.host if request.client else "unknown"
         _now = time.time()
         _window_start = _now - _LOGIN_WINDOW
-        _ts = _login_rate_limit[_client_ip]
-        _login_rate_limit[_client_ip] = [t for t in _ts if t > _window_start]
-        _ts = _login_rate_limit[_client_ip]
 
-        if len(_ts) >= _LOGIN_MAX_ATTEMPTS:
-            logger.warning("Login rate limit exceeded for IP: %s", _client_ip)
-            raise HTTPException(
-                status_code=429,
-                detail=f"Too many login attempts. Try again in {_LOGIN_WINDOW:.0f} seconds.",
-            )
+        with _rate_limit_lock:
+            _ts = _login_rate_limit[_client_ip]
+            _login_rate_limit[_client_ip] = [t for t in _ts if t > _window_start]
+            _ts = _login_rate_limit[_client_ip]
 
-        _ts.append(_now)
+            if len(_ts) >= _LOGIN_MAX_ATTEMPTS:
+                logger.warning("Login rate limit exceeded for IP: %s", _client_ip)
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Too many login attempts. Try again in {_LOGIN_WINDOW:.0f} seconds.",
+                )
+
+            _ts.append(_now)
 
     users = _get_users()
     user = None

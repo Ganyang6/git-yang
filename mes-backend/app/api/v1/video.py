@@ -257,12 +257,6 @@ async def upload_video(
             shift=shift,
             line=line,
         )
-        # P0-1 FIX: publish_channel returns subscriber count (0/N),
-        # not a boolean. Always start the task regardless, so it
-        # doesn't stay stuck in PENDING forever when no subscriber
-        # is connected yet. The perception container will pick it up
-        # when it subscribes.
-        mgr.start_task(task["task_id"])
         if not pipeline_triggered:
             logger.warning(
                 "Pipeline command publish returned 0 subscribers, "
@@ -270,6 +264,10 @@ async def upload_video(
                 "perception container subscribes)",
                 task["task_id"],
             )
+
+    # Always start the task regardless of Redis availability.
+    # The perception container will pick up the task when it subscribes.
+    mgr.start_task(task["task_id"])
 
     return ApiResponse(
         data={
@@ -364,7 +362,6 @@ def _format_sse(event_type: str, data: dict) -> str:
 async def stream_task_progress(
     task_id: str,
     request: Request,
-    token: str = Query("", description="JWT authentication token (fallback)"),
 ):
     """SSE endpoint for real-time video processing progress.
 
@@ -372,16 +369,13 @@ async def stream_task_progress(
     messages for the given task_id. Falls back to polling the
     VideoTaskManager if Redis is unavailable.
 
-    Authentication: prefers Authorization header (Bearer token),
-    falls back to query parameter for backward compatibility.
+    Authentication: uses Authorization header (Bearer token) only.
     """
-    # JWT authentication: prefer Authorization header, fallback to query param
-    auth_token = ""
+    # JWT authentication: Authorization header only (P1-13)
     auth_header = request.headers.get("authorization", "")
+    auth_token = ""
     if auth_header.startswith("Bearer "):
         auth_token = auth_header[7:]
-    elif token:
-        auth_token = token
 
     if not auth_token:
         async def auth_fail():

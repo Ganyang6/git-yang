@@ -288,14 +288,15 @@ class RedisClient:
                 # to consume all pending messages (including those that arrived
                 # before the consumer started).
                 try:
+                    # id="$" means only consume new messages from this point forward
                     await r.xgroup_create(
                         name=stream_key,
                         groupname=group,
-                        id="0",
+                        id="$",
                         mkstream=True,
                     )
                     logger.info(
-                        "Auto-created consumer group %s on %s (id=0)",
+                        "Auto-created consumer group %s on %s (id=$)",
                         group, stream_key,
                     )
                 except redis.exceptions.ResponseError as cg_err:

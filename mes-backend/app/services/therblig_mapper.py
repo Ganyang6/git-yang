@@ -107,6 +107,10 @@ def map_action_to_therblig(action: ActionLabel) -> TherbligMapping:
     )
 
 
+# One MOD unit in seconds (MOD = Modular Arrangement of Predetermined Time Standard)
+MOD_TO_SECONDS: float = 0.129
+
+
 def compute_standard_time(mappings: list) -> float:
     """
     Compute standard time in seconds from a list of Therblig mappings.
@@ -117,6 +121,5 @@ def compute_standard_time(mappings: list) -> float:
     Returns:
         Standard time in seconds (MOD * 0.129).
     """
-    mod_unit = 0.129
     total_mod = sum(m.mod_value for m in mappings)
-    return total_mod * mod_unit
+    return total_mod * MOD_TO_SECONDS

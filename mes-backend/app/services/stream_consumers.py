@@ -77,6 +77,8 @@ class PoseFrameConsumer:
         self._failure_counts: Dict[str, int] = {}
         self._MAX_FAILURES = 3
         self._log_interval = 0  # P0-2: Periodic stats log counter
+        self._input_count = 0
+        self._output_count = 0
 
     def _get_pipeline(self):
         """Lazy-initialize ActionPipeline (singleton per consumer)."""
@@ -131,7 +133,7 @@ class PoseFrameConsumer:
                     await self._process_message(msg)
                 # P0-2: Log conversion stats every ~100 iterations
                 self._log_interval += 1
-                if self._log_interval % 100 == 0 and hasattr(self, '_input_count') and self._input_count > 0:
+                if self._log_interval % 100 == 0 and self._input_count > 0:
                     conversion = round(self._output_count / self._input_count * 100, 1)
                     logger.info(
                         "P0-2 PoseFrameConsumer stats: input=%d output=%d conversion=%.1f%%",
@@ -183,9 +185,7 @@ class PoseFrameConsumer:
             return
 
         # P0-2 FIX: Track input/output stats for conversion rate diagnostics
-        if not hasattr(self, '_input_count'):
-            self._input_count = 0
-            self._output_count = 0
+        # _input_count / _output_count initialized in __init__ (P0-4)
         self._input_count += 1
 
         try:
@@ -538,6 +538,12 @@ class ActionEventConsumer:
                     "DB may be unavailable or corrupted.",
                     self._persist_fail_count,
                 )
+            # P0-3: Close dirty session so it doesn't poison the next message
+            try:
+                session.close()
+            except Exception:
+                pass
+            self._db_session = None
             raise
 
     def _run_aggregation(self, session, station_id: str | None = None) -> None:

@@ -19,10 +19,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import require_auth
+from app.models.schemas import ApiResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
+
+# Shared httpx.AsyncClient to avoid creating a new client per request (P1-10)
+_shared_client: Optional[httpx.AsyncClient] = None
+_shared_client_lock = threading.Lock()
 
 # In-memory rate limiter: {username: [timestamp, ...]}
 # NOTE: Per-process only. In multi-worker deployments (gunicorn --workers=N),
@@ -34,6 +39,19 @@ _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_CLEANUP_INTERVAL = 300  # clean up stale entries every 5 min
 _last_cleanup = 0.0
 _rate_limit_lock = threading.Lock()
+
+
+async def _get_shared_client() -> httpx.AsyncClient:
+    """Get or create the shared httpx.AsyncClient (thread-safe)."""
+    global _shared_client
+    if _shared_client is not None:
+        return _shared_client
+
+    with _shared_client_lock:
+        if _shared_client is None:
+            cfg = _get_ai_config()
+            _shared_client = httpx.AsyncClient(timeout=cfg.timeout)
+        return _shared_client
 
 
 class ChatMessage(BaseModel):
@@ -93,7 +111,7 @@ def _get_ai_config():
     return load_app_config().ai
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ApiResponse)
 async def chat_proxy(
     req: ChatRequest,
     _user: dict = Depends(require_auth),
@@ -123,15 +141,15 @@ async def chat_proxy(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=cfg.timeout) as client:
-            response = await client.post(
-                cfg.api_url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {cfg.api_key}",
-                },
-            )
+        client = await _get_shared_client()
+        response = await client.post(
+            cfg.api_url,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {cfg.api_key}",
+            },
+        )
     except httpx.TimeoutException:
         logger.error("DeepSeek API request timed out (%ds)", cfg.timeout)
         raise HTTPException(status_code=504, detail="AI service timeout")
@@ -156,10 +174,12 @@ async def chat_proxy(
     if not content:
         raise HTTPException(status_code=502, detail="AI returned empty response")
 
-    return ChatResponse(
-        content=content,
-        model=data.get("model", cfg.model),
-        usage=usage,
+    return ApiResponse(
+        data={
+            "content": content,
+            "model": data.get("model", cfg.model),
+            "usage": usage,
+        },
     )
 
 
@@ -167,7 +187,6 @@ async def chat_proxy(
 async def ai_status(_user: dict = Depends(require_auth)):
     """Check whether the AI proxy is configured and ready. Requires auth (S-11)."""
     cfg = _get_ai_config()
-    from app.models.schemas import ApiResponse
     return ApiResponse(
         data={"configured": bool(cfg.api_key), "model": cfg.model},
         timestamp=time.time(),

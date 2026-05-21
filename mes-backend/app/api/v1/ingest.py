@@ -11,6 +11,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Dict, List, Optional
 
@@ -33,9 +34,11 @@ router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
 
 # Module-level pipeline (singleton per process)
 _pipeline: Optional[ActionPipeline] = None
+_pipeline_lock = threading.Lock()
 
 # Lazy aggregation state: track unaggregated segment count per station
 _pending_aggregations: Dict[str, int] = {}
+_pending_lock = threading.Lock()
 # Threshold: trigger aggregate_segments after this many unaggregated segments
 _AGGREGATION_THRESHOLD = 5
 
@@ -46,22 +49,28 @@ _MAX_BATCH_FRAMES = 500
 def _get_pipeline() -> ActionPipeline:
     """Get or create the singleton action pipeline."""
     global _pipeline
-    if _pipeline is None:
-        from app.core.config import load_app_config
-        cfg = load_app_config()
-        _pipeline = ActionPipeline(
-            window_size=cfg.action_classifier.window_size,
-            min_landmark_visibility=cfg.action_classifier.min_landmark_visibility,
-            confirmation_frames=cfg.process_segmenter.confirmation_frames,
-            idle_timeout_frames=cfg.process_segmenter.idle_timeout_frames,
-            max_segment_duration_s=cfg.process_segmenter.max_segment_duration_s,
-        )
-        logger.info(
-            "Action pipeline created: window=%d, confirm=%d, idle_timeout=%d",
-            cfg.action_classifier.window_size,
-            cfg.process_segmenter.confirmation_frames,
-            cfg.process_segmenter.idle_timeout_frames,
-        )
+    # Fast path: already initialized (no lock needed for read)
+    if _pipeline is not None:
+        return _pipeline
+
+    with _pipeline_lock:
+        # Double-check after acquiring lock
+        if _pipeline is None:
+            from app.core.config import load_app_config
+            cfg = load_app_config()
+            _pipeline = ActionPipeline(
+                window_size=cfg.action_classifier.window_size,
+                min_landmark_visibility=cfg.action_classifier.min_landmark_visibility,
+                confirmation_frames=cfg.process_segmenter.confirmation_frames,
+                idle_timeout_frames=cfg.process_segmenter.idle_timeout_frames,
+                max_segment_duration_s=cfg.process_segmenter.max_segment_duration_s,
+            )
+            logger.info(
+                "Action pipeline created: window=%d, confirm=%d, idle_timeout=%d",
+                cfg.action_classifier.window_size,
+                cfg.process_segmenter.confirmation_frames,
+                cfg.process_segmenter.idle_timeout_frames,
+            )
     return _pipeline
 
 
@@ -101,16 +110,17 @@ def ingest_frame(
         }
 
         # Lazy aggregation: trigger after threshold segments
-        pending = _pending_aggregations.get(station_id, 0) + 1
-        if pending >= _AGGREGATION_THRESHOLD:
-            aggregate_segments(session, station_id)
-            _pending_aggregations[station_id] = 0
-            logger.debug(
-                "Triggered aggregation for station %s after %d segments",
-                station_id, pending,
-            )
-        else:
-            _pending_aggregations[station_id] = pending
+        with _pending_lock:
+            pending = _pending_aggregations.get(station_id, 0) + 1
+            if pending >= _AGGREGATION_THRESHOLD:
+                aggregate_segments(session, station_id)
+                _pending_aggregations[station_id] = 0
+                logger.debug(
+                    "Triggered aggregation for station %s after %d segments",
+                    station_id, pending,
+                )
+            else:
+                _pending_aggregations[station_id] = pending
 
     return ApiResponse(data=result, timestamp=time.time())
 
@@ -147,7 +157,8 @@ def ingest_frames(
 
     if segments_closed:
         aggregate_segments(session, station_id)
-        _pending_aggregations[station_id] = 0
+        with _pending_lock:
+            _pending_aggregations[station_id] = 0
 
     return ApiResponse(
         data={
@@ -180,7 +191,8 @@ def flush_segments(
 
     if flushed:
         aggregate_segments(session, station_id)
-        _pending_aggregations[station_id] = 0
+        with _pending_lock:
+            _pending_aggregations[station_id] = 0
 
     return ApiResponse(
         data={

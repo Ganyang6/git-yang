@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/ai", tags=["ai-chat"])
 _security = HTTPBearer(auto_error=False)
 
 from app.api.deps import get_db_session
+from app.models.schemas import ApiResponse
 
 # Fallback gateway (used only when lifespan init failed)
 _gateway = None
@@ -370,10 +371,8 @@ async def list_tasks(
 
     import time as _time
 
-    return {
-        "code": 0,
-        "message": "success",
-        "data": {
+    return ApiResponse(
+        data={
             "tasks": [
                 {
                     "task_id": r.task_id,
@@ -391,8 +390,8 @@ async def list_tasks(
             "limit": limit,
             "offset": offset,
         },
-        "timestamp": _time.time(),
-    }
+        timestamp=_time.time(),
+    )
 
 
 # ── AI Health / Context ──────────────────────────────────────────────
@@ -405,8 +404,6 @@ async def ai_health(
     """Get AI service health status."""
     _get_current_user(credentials)
     gateway = await _get_gateway(request)
-    return {
-        "code": 0,
-        "message": "success",
-        "data": gateway.get_status(),
-    }
+    return ApiResponse(
+        data=gateway.get_status(),
+    )

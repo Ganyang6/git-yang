@@ -125,8 +125,13 @@ def list_orders(
 
     total = query.count()
     # P1 #23: Use joinedload to prevent N+1 query on customer
+    # P1-8: Also eager-load status_rel and priority_rel to prevent N+1 in _order_to_dict
     items = (
-        query.options(joinedload(Order.customer))
+        query.options(
+            joinedload(Order.customer),
+            joinedload(Order.status_rel),
+            joinedload(Order.priority_rel),
+        )
         .order_by(Order.id.desc())
         .offset((page - 1) * pageSize)
         .limit(pageSize)
@@ -151,7 +156,11 @@ def get_order(
     _user: dict = Depends(require_auth),
 ):
     """Get a single order by ID."""
-    order = session.query(Order).options(joinedload(Order.customer)).where(Order.id == order_id).first()
+    order = session.query(Order).options(
+        joinedload(Order.customer),
+        joinedload(Order.status_rel),
+        joinedload(Order.priority_rel),
+    ).where(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return ApiResponse(data=_order_to_dict(order), timestamp=time.time())

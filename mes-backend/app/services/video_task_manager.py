@@ -252,11 +252,13 @@ class VideoTaskManager:
                         "falling back to in-memory store",
                         task_id,
                     )
+                    self.use_redis = False
                     self._tasks[task_id] = task
             except Exception as e:
                 logger.error(
                     "Failed to save task %s to Redis: %s", task_id, e,
                 )
+                self.use_redis = False
                 self._tasks[task_id] = task
         else:
             self._tasks[task_id] = task
@@ -352,13 +354,16 @@ class VideoTaskManager:
         if task is None:
             return False
 
-        if task["status"] != TaskStatus.PENDING:
-            return False
-
         if self.use_redis:
             acquired = self._acquire_lock_sync()
             if not acquired:
                 logger.warning("Cannot start %s: failed to acquire Redis lock", task_id)
+                return False
+            # Re-fetch under lock to avoid TOCTOU race:
+            # the task status may have changed between the initial
+            # get_task() and the lock acquisition.
+            task = self.get_task(task_id)
+            if task is None:
                 return False
         else:
             if self._processing_task_id is not None:
@@ -369,6 +374,11 @@ class VideoTaskManager:
                         task_id, self._processing_task_id,
                     )
                     return False
+
+        if task["status"] != TaskStatus.PENDING:
+            if self.use_redis:
+                self._release_lock_sync()
+            return False
 
         task["status"] = TaskStatus.PROCESSING
         task["started_at"] = time.time()
@@ -383,12 +393,14 @@ class VideoTaskManager:
                         "falling back to in-memory store",
                         task_id,
                     )
+                    self.use_redis = False
                     self._tasks[task_id] = task
             except Exception as e:
                 logger.error(
                     "Failed to save task %s status to Redis: %s",
                     task_id, e,
                 )
+                self.use_redis = False
                 self._tasks[task_id] = task
         else:
             self._tasks[task_id] = task

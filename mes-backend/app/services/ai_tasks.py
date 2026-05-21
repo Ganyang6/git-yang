@@ -61,6 +61,26 @@ def _is_retryable(exc: Exception) -> bool:
 _gateway_cache: tuple | None = None
 
 
+def _reset_ai_gateway():
+    """Reset the gateway cache, closing any cached Redis connections.
+
+    Must be called when a Celery task finishes to avoid leaking
+    ``redis.asyncio`` connections across task invocations (P1).
+    """
+    global _gateway_cache
+    if _gateway_cache is not None:
+        _, cache_store = _gateway_cache
+        if cache_store is not None:
+            r = getattr(cache_store, 'redis_client', None)
+            if r is not None and hasattr(r, 'aclose'):
+                try:
+                    import asyncio
+                    asyncio.run(r.aclose())
+                except Exception:
+                    logger.debug("Failed to close cached Redis client", exc_info=True)
+    _gateway_cache = None
+
+
 def _get_ai_gateway():
     """Lazy-load AIGateway singleton with config and optional Redis cache.
 
@@ -216,41 +236,44 @@ def analyze_worktime_task(
     chat_messages = _to_chat_messages(messages)
 
     try:
-        result = asyncio.run(asyncio.wait_for(gateway.analyze(
-            prompt="",  # messages override prompt
-            messages=chat_messages,
-            context={"analysis_type": "worktime", "station_id": station_id},
-        ), timeout=40))
+        try:
+            result = asyncio.run(asyncio.wait_for(gateway.analyze(
+                prompt="",  # messages override prompt
+                messages=chat_messages,
+                context={"analysis_type": "worktime", "station_id": station_id},
+            ), timeout=40))
 
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info(
-            "Worktime analysis OK: station=%s, source=%s, %dms",
-            station_id, result.get("model_source"), duration_ms,
-        )
-        return {
-            "content": result.get("content", ""),
-            "model_source": result.get("model_source", "unknown"),
-            "usage": result.get("usage", {}),
-            "duration_ms": duration_ms,
-            "station_id": station_id,
-            "period": period,
-        }
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info(
+                "Worktime analysis OK: station=%s, source=%s, %dms",
+                station_id, result.get("model_source"), duration_ms,
+            )
+            return {
+                "content": result.get("content", ""),
+                "model_source": result.get("model_source", "unknown"),
+                "usage": result.get("usage", {}),
+                "duration_ms": duration_ms,
+                "station_id": station_id,
+                "period": period,
+            }
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.error("Worktime analysis FAILED: station=%s, %dms: %s", station_id, duration_ms, exc)
-        if _is_retryable(exc):
-            logger.info("Retrying worktime analysis: retryable error %s", type(exc).__name__)
-            raise self.retry(exc=exc)
-        return {
-            "content": "Analysis failed. Please try again later or contact support.",
-            "model_source": "error",
-            "usage": {},
-            "duration_ms": duration_ms,
-            "station_id": station_id,
-            "period": period,
-            "error": "internal_error",
-        }
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.error("Worktime analysis FAILED: station=%s, %dms: %s", station_id, duration_ms, exc)
+            if _is_retryable(exc):
+                logger.info("Retrying worktime analysis: retryable error %s", type(exc).__name__)
+                raise self.retry(exc=exc)
+            return {
+                "content": "Analysis failed. Please try again later or contact support.",
+                "model_source": "error",
+                "usage": {},
+                "duration_ms": duration_ms,
+                "station_id": station_id,
+                "period": period,
+                "error": "internal_error",
+            }
+    finally:
+        _reset_ai_gateway()
 
 
 @celery.task(
@@ -281,39 +304,42 @@ def analyze_line_balance_task(
     chat_messages = _to_chat_messages(messages)
 
     try:
-        result = asyncio.run(asyncio.wait_for(gateway.analyze(
-            prompt="",
-            messages=chat_messages,
-            context={"analysis_type": "line_balance", "line_id": line_id},
-        ), timeout=40))
+        try:
+            result = asyncio.run(asyncio.wait_for(gateway.analyze(
+                prompt="",
+                messages=chat_messages,
+                context={"analysis_type": "line_balance", "line_id": line_id},
+            ), timeout=40))
 
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info(
-            "Line balance analysis OK: line=%s, source=%s, %dms",
-            line_id, result.get("model_source"), duration_ms,
-        )
-        return {
-            "content": result.get("content", ""),
-            "model_source": result.get("model_source", "unknown"),
-            "usage": result.get("usage", {}),
-            "duration_ms": duration_ms,
-            "line_id": line_id,
-        }
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info(
+                "Line balance analysis OK: line=%s, source=%s, %dms",
+                line_id, result.get("model_source"), duration_ms,
+            )
+            return {
+                "content": result.get("content", ""),
+                "model_source": result.get("model_source", "unknown"),
+                "usage": result.get("usage", {}),
+                "duration_ms": duration_ms,
+                "line_id": line_id,
+            }
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.error("Line balance analysis FAILED: line=%s, %dms: %s", line_id, duration_ms, exc)
-        if _is_retryable(exc):
-            logger.info("Retrying line balance analysis: retryable error %s", type(exc).__name__)
-            raise self.retry(exc=exc)
-        return {
-            "content": "Line balance analysis failed. Please try again later.",
-            "model_source": "error",
-            "usage": {},
-            "duration_ms": duration_ms,
-            "line_id": line_id,
-            "error": "internal_error",
-        }
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.error("Line balance analysis FAILED: line=%s, %dms: %s", line_id, duration_ms, exc)
+            if _is_retryable(exc):
+                logger.info("Retrying line balance analysis: retryable error %s", type(exc).__name__)
+                raise self.retry(exc=exc)
+            return {
+                "content": "Line balance analysis failed. Please try again later.",
+                "model_source": "error",
+                "usage": {},
+                "duration_ms": duration_ms,
+                "line_id": line_id,
+                "error": "internal_error",
+            }
+    finally:
+        _reset_ai_gateway()
 
 
 @celery.task(
@@ -358,39 +384,42 @@ def analyze_therblig_task(
         gateway.set_cache_store(cache_store)
 
     try:
-        result = asyncio.run(asyncio.wait_for(gateway.analyze_therblig(
-            station_id=station_id,
-            therblig_stats=therblig_stats,
-            mod_data=mod_data,
-        ), timeout=40))
+        try:
+            result = asyncio.run(asyncio.wait_for(gateway.analyze_therblig(
+                station_id=station_id,
+                therblig_stats=therblig_stats,
+                mod_data=mod_data,
+            ), timeout=40))
 
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info(
-            "Therblig optimization OK: station=%s, source=%s, %dms",
-            station_id, result.get("model_source"), duration_ms,
-        )
-        return {
-            "content": result.get("content", ""),
-            "model_source": result.get("model_source", "unknown"),
-            "usage": result.get("usage", {}),
-            "duration_ms": duration_ms,
-            "station_id": station_id,
-        }
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info(
+                "Therblig optimization OK: station=%s, source=%s, %dms",
+                station_id, result.get("model_source"), duration_ms,
+            )
+            return {
+                "content": result.get("content", ""),
+                "model_source": result.get("model_source", "unknown"),
+                "usage": result.get("usage", {}),
+                "duration_ms": duration_ms,
+                "station_id": station_id,
+            }
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.error("Therblig optimization FAILED: station=%s, %dms: %s", station_id, duration_ms, exc)
-        if _is_retryable(exc):
-            logger.info("Retrying therblig optimization: retryable error %s", type(exc).__name__)
-            raise self.retry(exc=exc)
-        return {
-            "content": "Therblig analysis failed. Please try again later.",
-            "model_source": "error",
-            "usage": {},
-            "duration_ms": duration_ms,
-            "station_id": station_id,
-            "error": "internal_error",
-        }
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.error("Therblig optimization FAILED: station=%s, %dms: %s", station_id, duration_ms, exc)
+            if _is_retryable(exc):
+                logger.info("Retrying therblig optimization: retryable error %s", type(exc).__name__)
+                raise self.retry(exc=exc)
+            return {
+                "content": "Therblig analysis failed. Please try again later.",
+                "model_source": "error",
+                "usage": {},
+                "duration_ms": duration_ms,
+                "station_id": station_id,
+                "error": "internal_error",
+            }
+    finally:
+        _reset_ai_gateway()
 
 
 @celery.task(
@@ -419,36 +448,39 @@ def generate_report_task(
     chat_messages = _to_chat_messages(messages)
 
     try:
-        result = asyncio.run(asyncio.wait_for(gateway.analyze(
-            prompt="",
-            messages=chat_messages,
-            context={"analysis_type": report_type},
-        ), timeout=40))
+        try:
+            result = asyncio.run(asyncio.wait_for(gateway.analyze(
+                prompt="",
+                messages=chat_messages,
+                context={"analysis_type": report_type},
+            ), timeout=40))
 
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info("Report generation OK: type=%s, source=%s", report_type, result.get("model_source"))
-        return {
-            "content": result.get("content", ""),
-            "model_source": result.get("model_source", "unknown"),
-            "usage": result.get("usage", {}),
-            "duration_ms": duration_ms,
-            "report_type": report_type,
-        }
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info("Report generation OK: type=%s, source=%s", report_type, result.get("model_source"))
+            return {
+                "content": result.get("content", ""),
+                "model_source": result.get("model_source", "unknown"),
+                "usage": result.get("usage", {}),
+                "duration_ms": duration_ms,
+                "report_type": report_type,
+            }
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.error("Report generation FAILED: type=%s: %s", report_type, exc)
-        if _is_retryable(exc):
-            logger.info("Retrying report generation: retryable error %s", type(exc).__name__)
-            raise self.retry(exc=exc)
-        return {
-            "content": "Report generation failed. Please try again later.",
-            "model_source": "error",
-            "usage": {},
-            "duration_ms": duration_ms,
-            "report_type": report_type,
-            "error": "internal_error",
-        }
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.error("Report generation FAILED: type=%s: %s", report_type, exc)
+            if _is_retryable(exc):
+                logger.info("Retrying report generation: retryable error %s", type(exc).__name__)
+                raise self.retry(exc=exc)
+            return {
+                "content": "Report generation failed. Please try again later.",
+                "model_source": "error",
+                "usage": {},
+                "duration_ms": duration_ms,
+                "report_type": report_type,
+                "error": "internal_error",
+            }
+    finally:
+        _reset_ai_gateway()
 
 
 @celery.task(name="send_notification", ignore_result=True)

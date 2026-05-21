@@ -239,11 +239,7 @@ def aggregate_segments(
     # Generate Therblig detail rows for all records (both new and updated)
     session.flush()  # ensure all record IDs are populated
     for record in records:
-        # Clear old details for this record
-        session.query(TherbligDetail).filter_by(
-            worktime_record_id=record.id
-        ).delete()
-        # Look up the action value that maps to this operation name
+        # Determine what to create BEFORE deleting (P1: avoid data loss on failure)
         action_value = None
         for av, op_name in {
             ActionLabel.REACH.value: "reach",
@@ -265,18 +261,32 @@ def aggregate_segments(
         except ValueError:
             continue
         segs_for_action = groups.get(action_value, [])
+        if not segs_for_action:
+            continue
+        # Wrap delete+rebuild in savepoint so partial failures don't lose data
         total_actual_ms = sum(s.duration_ms for s in segs_for_action)
-        for seg in segs_for_action:
-            detail = TherbligDetail(
-                worktime_record_id=record.id,
-                symbol=therblig.symbol.value,
-                name=therblig.name,
-                mod=therblig.mod_value,
-                actual_ms=seg.duration_ms,
-                pct=(seg.duration_ms / total_actual_ms * 100) if total_actual_ms > 0 else 0.0,
-                is_waste=therblig.is_waste,
+        try:
+            with session.begin_nested():
+                session.query(TherbligDetail).filter_by(
+                    worktime_record_id=record.id
+                ).delete()
+                for seg in segs_for_action:
+                    detail = TherbligDetail(
+                        worktime_record_id=record.id,
+                        symbol=therblig.symbol.value,
+                        name=therblig.name,
+                        mod=therblig.mod_value,
+                        actual_ms=seg.duration_ms,
+                        pct=(seg.duration_ms / total_actual_ms * 100) if total_actual_ms > 0 else 0.0,
+                        is_waste=therblig.is_waste,
+                    )
+                    session.add(detail)
+        except Exception as exc:
+            logger.warning(
+                "Failed to rebuild therblig details for record %s: %s",
+                record.id, exc,
             )
-            session.add(detail)
+            # Savepoint automatically rolls back: old TherbligDetails survive
 
     session.commit()
     return records

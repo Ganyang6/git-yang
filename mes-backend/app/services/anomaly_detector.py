@@ -52,7 +52,6 @@ class _ActionStats:
     m2: float = 0.0  # Welford sum of squared deviations from mean
     min_duration: float = float("inf")
     max_duration: float = 0.0
-    _total_duration: float = 0.0  # kept for decay compatibility
 
     @property
     def mean(self) -> float:
@@ -75,7 +74,6 @@ class _ActionStats:
         self.mean_duration += delta / self.count
         delta2 = duration_ms - self.mean_duration
         self.m2 += delta * delta2
-        self._total_duration += duration_ms
         self.min_duration = min(self.min_duration, duration_ms)
         self.max_duration = max(self.max_duration, duration_ms)
 
@@ -87,7 +85,6 @@ class _ActionStats:
         """
         if self.count == 0:
             return
-        self._total_duration *= factor
         self.m2 *= factor
         self.count = max(1, int(self.count * factor))
 

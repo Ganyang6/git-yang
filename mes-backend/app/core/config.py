@@ -224,7 +224,7 @@ class AppConfig:
     onnx: OnnxConfig = field(default_factory=OnnxConfig)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=None)
 def _env_or_file(key: str, default: str = "") -> str:
     """Get value from env var, falling back to *_FILE env var for Docker secrets.
 
@@ -278,6 +278,8 @@ def _validate_critical_configs(config: AppConfig) -> None:
             "Celery broker URL is empty. Async task processing disabled. "
             "Set app.celery.broker_url in config.yaml or CELERY_BROKER_URL env var."
         )
+    if not config.auth.jwt_secret_key:
+        logger.error("JWT_SECRET_KEY is empty. Set via env JWT_SECRET_KEY or Docker secret.")
 
 
 @lru_cache(maxsize=1)

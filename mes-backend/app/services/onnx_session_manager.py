@@ -263,7 +263,8 @@ class OnnxSessionManager:
             if self._load_model(new_model_path):
                 if old_session is not None:
                     try:
-                        old_session.__exit__(None, None, None)
+                        with old_session:
+                            pass
                     except Exception:
                         pass
                 self._model_path = new_path
@@ -280,7 +281,8 @@ class OnnxSessionManager:
         with self._lock:
             if self._session is not None:
                 try:
-                    self._session.__exit__(None, None, None)
+                    with self._session:
+                        pass
                 except Exception:
                     pass
                 self._session = None

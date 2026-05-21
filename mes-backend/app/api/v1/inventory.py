@@ -180,6 +180,20 @@ def outbound_stock(
     _user: dict = Depends(require_admin),
 ):
     """Process outbound (stock out) operation."""
+    # Fetch item first (needed for error response and refresh)
+    item = session.query(InventoryItem).filter(
+        InventoryItem.code == req.code
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    # Check stock before atomic update
+    if item.stock < req.qty:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock. Current: {item.stock}, Requested: {req.qty}",
+        )
+
     # Atomic SQL update with stock check to prevent race condition (P0 #14)
     result = session.execute(
         update(InventoryItem)
@@ -190,21 +204,14 @@ def outbound_stock(
         .values(stock=InventoryItem.stock - req.qty)
     )
     if result.rowcount == 0:
-        # Check if item exists but has insufficient stock
-        item = session.query(InventoryItem).filter(
-            InventoryItem.code == req.code
-        ).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Inventory item not found")
+        # Race condition: stock changed between check and update
         raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient stock. Current: {item.stock}, Requested: {req.qty}",
+            status_code=409,
+            detail=f"Stock changed concurrently for {req.code}. Please retry.",
         )
 
-    # Re-fetch for response
-    item = session.query(InventoryItem).filter(
-        InventoryItem.code == req.code
-    ).first()
+    # Refresh from DB instead of re-querying (P2-10)
+    session.refresh(item)
 
     log = InventoryLog(
         inventory_item_id=item.id,

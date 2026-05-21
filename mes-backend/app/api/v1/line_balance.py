@@ -32,6 +32,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/line-balance", tags=["line-balance"])
 
 
+def _compute_line_balance_context(session: Session) -> dict:
+    """Compute shared line balance context used by both /summary and /full.
+
+    Returns a dict with keys: station_data, stations, lbr, si, bottleneck,
+    takt_time, avg_d.
+    """
+    station_data = get_station_metrics(session)
+    n = len(station_data) if station_data else 1
+    avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
+
+    metrics = compute_balance_metrics(station_data)
+    stations = metrics["stations"]
+
+    # Takt time = available time / demand
+    completed_qty = session.query(func.sum(Order.completed_qty)).scalar() or 0
+    shift_seconds = 28800.0
+    takt_time = shift_seconds / completed_qty if completed_qty > 0 else 0.0
+
+    return {
+        "station_data": station_data,
+        "stations": stations,
+        "lbr": metrics["balanceRate"],
+        "si": metrics["smoothIndex"],
+        "bottleneck": metrics["bottleneckStation"],
+        "takt_time": takt_time,
+        "avg_d": avg_d,
+        "n": n,
+    }
 
 
 @router.get("/summary")
@@ -40,29 +68,15 @@ def line_balance_summary(
     _user: dict = Depends(require_read_all),
 ):
     """Get line balance summary for the dashboard."""
-    station_data = get_station_metrics(session)
-    n = len(station_data) if station_data else 1
-    avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
-
-    metrics = compute_balance_metrics(station_data)
-    lbr = metrics["balanceRate"]
-    si = metrics["smoothIndex"]
-    bottleneck = metrics["bottleneckStation"]
-    stations = metrics["stations"]
-
-    # Takt time = available time / demand
-    completed_qty = session.query(func.sum(Order.completed_qty)).scalar() or 0
-    shift_seconds = 28800.0
-    # N-P1-14: consistent with /full endpoint -- return 0 when no demand
-    takt_time = shift_seconds / completed_qty if completed_qty > 0 else 0.0
+    ctx = _compute_line_balance_context(session)
 
     return ApiResponse(
         data={
-            "balanceRate": lbr,
-            "smoothIndex": si,
-            "bottleneckStation": bottleneck,
-            "stations": stations,
-            "taktTime": round(takt_time, 1),
+            "balanceRate": ctx["lbr"],
+            "smoothIndex": ctx["si"],
+            "bottleneckStation": ctx["bottleneck"],
+            "stations": ctx["stations"],
+            "taktTime": round(ctx["takt_time"], 1),
         },
         timestamp=time.time(),
     )
@@ -75,20 +89,10 @@ def line_balance_full(
     _user: dict = Depends(require_read_all),
 ):
     """Get complete line balance data with ECRS suggestions."""
-    station_data = get_station_metrics(session)
-    n = len(station_data) if station_data else 1
-    avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
-
-    metrics = compute_balance_metrics(station_data)
-    lbr = metrics["balanceRate"]
-    si = metrics["smoothIndex"]
-    bottleneck = metrics["bottleneckStation"]
-    stations = metrics["stations"]
-
-    # Takt time (N-P1-14: consistent zero-division strategy with /summary)
-    completed_qty = session.query(func.sum(Order.completed_qty)).scalar() or 0
-    shift_seconds = 28800.0
-    takt_time = shift_seconds / completed_qty if completed_qty > 0 else 0.0
+    ctx = _compute_line_balance_context(session)
+    stations = ctx["stations"]
+    n = ctx["n"]
+    avg_d = ctx["avg_d"]
 
     # Lost capacity = (max - avg) * N stations
     max_d = max((s["time"] for s in stations), default=0)

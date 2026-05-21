@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -35,12 +36,14 @@ _HEARTBEAT_INTERVAL = 15
 # 模块级计数器跟踪当前活跃 SSE 连接数
 MAX_SSE_CONNECTIONS = 50
 _active_sse_connections: int = 0
+_sse_conn_lock = threading.Lock()
 
 
 def _release_sse_connection() -> None:
     """释放一个 SSE 连接槽位。"""
     global _active_sse_connections
-    _active_sse_connections -= 1
+    with _sse_conn_lock:
+        _active_sse_connections -= 1
     logger.debug("SSE connection released, active=%d", _active_sse_connections)
 
 
@@ -95,14 +98,13 @@ async def _pubsub_reader(
 @router.get("/sse/events")
 async def sse_events(
     request: Request,
-    token: str = Query("", description="JWT authentication token"),
     last_event_id: str = Query("", description="Last received event ID for reconnection"),
 ):
     """
     SSE endpoint for system events and notifications.
 
-    Client connects with EventSource("/sse/events?token=<jwt>") and receives
-    JSON event notifications.
+    Client connects to receive JSON event notifications.
+    Authentication uses the Authorization header (Bearer JWT token).
 
     Event types:
     - system: system status changes
@@ -112,27 +114,18 @@ async def sse_events(
     """
     # SSE 连接上限检查
     global _active_sse_connections
-    if _active_sse_connections >= MAX_SSE_CONNECTIONS:
-        logger.warning(
-            "SSE connection rejected: active=%d >= max=%d",
-            _active_sse_connections, MAX_SSE_CONNECTIONS,
-        )
-        async def conn_limit():
-            yield _format_sse("error", {"status": "connection_limit", "message": "Too many SSE connections"})
-        return StreamingResponse(
-            conn_limit(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
 
-    _active_sse_connections += 1
-    logger.info("SSE connection accepted, active=%d", _active_sse_connections)
+    # JWT authentication: use Authorization header only (P1-14)
+    auth_header = request.headers.get("authorization", "")
+    auth_token = ""
+    if auth_header.startswith("Bearer "):
+        auth_token = auth_header[7:]
 
-    # JWT authentication (P03)
-    if not token:
+    if not auth_token:
+        async def auth_required():
             yield _format_sse("error", {"status": "auth_required", "message": "Authentication required"})
         return StreamingResponse(
-            auth_fail(),
+            auth_required(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
@@ -141,7 +134,7 @@ async def sse_events(
         from app.api.v1.auth import _get_jwt_secret
         import jwt
         secret = _get_jwt_secret()
-        jwt.decode(token, secret, algorithms=["HS256"])
+        jwt.decode(auth_token, secret, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         async def expired():
             yield _format_sse("error", {"status": "token_expired", "message": "Token expired"})
@@ -159,6 +152,23 @@ async def sse_events(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
+
+    with _sse_conn_lock:
+        if _active_sse_connections >= MAX_SSE_CONNECTIONS:
+            logger.warning(
+                "SSE connection rejected: active=%d >= max=%d",
+                _active_sse_connections, MAX_SSE_CONNECTIONS,
+            )
+            async def conn_limit():
+                yield _format_sse("error", {"status": "connection_limit", "message": "Too many SSE connections"})
+            return StreamingResponse(
+                conn_limit(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            )
+
+        _active_sse_connections += 1
+        logger.info("SSE connection accepted, active=%d", _active_sse_connections)
 
     async def event_generator():
         """Generate SSE events from Redis Pub/Sub with heartbeat fallback."""

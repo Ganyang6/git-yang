@@ -27,6 +27,9 @@ from app.services.action_classifier import (
 
 logger = logging.getLogger(__name__)
 
+# ─── Module-level constants for configurable limits ─────────────
+MAX_CAMERAS: int = 20  # LRU eviction threshold for per-camera windows
+
 
 class SlidingWindow:
     """
@@ -278,7 +281,7 @@ class ActionPipeline:
         self._windows: Dict[str, SlidingWindow] = {}
         self._segmenters: Dict[str, ProcessSegmenter] = {}
         self._last_access: Dict[str, float] = {}  # camera_id -> last access timestamp
-        self._MAX_CAMERAS = 20  # LRU eviction threshold
+        self._MAX_CAMERAS = MAX_CAMERAS
 
         self._confirmation_frames = confirmation_frames
         self._idle_timeout_frames = idle_timeout_frames

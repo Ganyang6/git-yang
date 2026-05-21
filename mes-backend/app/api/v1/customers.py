@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.database import get_session, Customer, Order
 from app.models.schemas import ApiResponse, CustomerCreate, CustomerUpdate
@@ -99,7 +99,17 @@ def list_customers(
 
     total = query.count()
     offset = (page - 1) * page_size
-    customers = query.order_by(Customer.id.desc()).offset(offset).limit(page_size).all()
+    # P1-9: Use joinedload to prevent N+1 query on customer_type_rel and level_rel
+    customers = (
+        query.options(
+            joinedload(Customer.customer_type_rel),
+            joinedload(Customer.level_rel),
+        )
+        .order_by(Customer.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
 
     # Batch aggregate order stats in a single GROUP BY query (avoids N+1)
     customer_ids = [c.id for c in customers]

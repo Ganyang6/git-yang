@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 import threading
+import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -37,7 +38,10 @@ def add_anomaly_event(event_dict: Dict[str, Any]) -> None:
 
     Called by ActionEventConsumer when AnomalyDetector flags an anomaly.
     For persistence across restarts, use add_anomaly_event_db() instead.
+    Attaches a unique dedup_id (uuid4) to each event for reliable dedup.
     """
+    event_dict = dict(event_dict)  # copy to avoid mutating caller's dict
+    event_dict["_dedup_id"] = str(uuid.uuid4())
     with _anomaly_store_lock:
         _anomaly_store.append(event_dict)
         if len(_anomaly_store) > _MAX_STORE_SIZE:
@@ -121,12 +125,35 @@ def get_anomaly_events(
         })
 
     # Also include any in-memory events not yet persisted
+    # P1-12: Deduplicate against DB events to avoid showing the same event twice
+    # when add_anomaly_event_db failed and fell back to memory store
     with _anomaly_store_lock:
         memory_snapshot = list(_anomaly_store)
     if memory_snapshot:
+        # Build a set of DB event (action, timestamp) pairs for dedup
+        db_keys = set()
+        for e in events:
+            db_keys.add((e.action, e.event_ts))
+
         for e in memory_snapshot:
             if station_id and e.get("station_id") != station_id:
                 continue
+            # Primary dedup: use unique _dedup_id when available (P2-13)
+            mem_dedup_id = e.get("_dedup_id")
+            if mem_dedup_id:
+                # Check if this dedup_id already appears in DB results
+                # (events that were persisted via add_anomaly_event_db)
+                already_seen = any(
+                    str(getattr(db_e, "_dedup_id", "")) == mem_dedup_id
+                    for db_e in events
+                )
+                if already_seen:
+                    continue
+            else:
+                # Fallback: dedup by (action, timestamp) for legacy events
+                mem_key = (e.get("action", ""), e.get("timestamp", 0.0))
+                if mem_key in db_keys:
+                    continue
             event_list.append(e)
 
     # Sort by timestamp descending and limit

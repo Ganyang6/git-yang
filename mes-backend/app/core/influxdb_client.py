@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import threading
 import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -63,8 +62,6 @@ class InfluxDBClient:
         self._write_api = None
         self._query_api = None
         self._client = None
-        self._retry_lock = threading.Lock()
-        self._retry_count = 0
         self._max_retries = self.config.max_retries or 3
 
     @property
@@ -93,12 +90,11 @@ class InfluxDBClient:
 
             # Create buckets API
             buckets_api = self._client.buckets_api()
-            org_id = self._client.org
 
             # Ensure hot bucket exists
-            self._ensure_bucket(buckets_api, org_id, self.config.bucket, self.config.hot_retention_days)
+            self._ensure_bucket(buckets_api, self.config.org, self.config.bucket, self.config.hot_retention_days)
             # Ensure long-term bucket exists
-            self._ensure_bucket(buckets_api, org_id, self.config.longterm_bucket, self.config.longterm_retention_days)
+            self._ensure_bucket(buckets_api, self.config.org, self.config.longterm_bucket, self.config.longterm_retention_days)
 
             # Initialize write and query APIs
             write_options = WriteOptions(
@@ -125,7 +121,7 @@ class InfluxDBClient:
             logger.error("InfluxDB initialization failed: %s", e)
             return False
 
-    def _ensure_bucket(self, buckets_api, org_id: str, bucket_name: str, retention_days: int) -> None:
+    def _ensure_bucket(self, buckets_api, org: str, bucket_name: str, retention_days: int) -> None:
         """Create bucket if it does not exist."""
         try:
             existing = buckets_api.find_bucket_by_name(bucket_name)
@@ -148,7 +144,7 @@ class InfluxDBClient:
         buckets_api.create_bucket(
             bucket_name=bucket_name,
             retention_rules=retention_rules,
-            org_id=org_id,
+            org=self.config.org,
         )
         logger.info("Created bucket '%s' with %dd retention", bucket_name, retention_days)
 
@@ -183,8 +179,6 @@ class InfluxDBClient:
         while retry_count <= self._max_retries:
             try:
                 self._write_api.write(bucket=bucket, record=record)
-                with self._retry_lock:
-                    self._retry_count = 0
                 return True
             except Exception as e:
                 retry_count += 1
@@ -193,8 +187,6 @@ class InfluxDBClient:
                         "InfluxDB write failed after %d attempts: %s",
                         self._max_retries, e,
                     )
-                    with self._retry_lock:
-                        self._retry_count = retry_count
                     return False
                 wait = 2 ** (retry_count - 1)
                 logger.warning(

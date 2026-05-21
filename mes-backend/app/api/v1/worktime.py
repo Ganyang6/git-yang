@@ -18,6 +18,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.models.database import get_session, init_db
@@ -30,10 +31,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/worktime", tags=["worktime"])
 
 
+class CalibrateRequest(BaseModel):
+    """Request model for calibrating a worktime record."""
+    standard_ms: float = Field(..., ge=0, description="New standard time in milliseconds")
+
+
 @router.put("/operations/{operation_id}")
 def calibrate_worktime(
     operation_id: int,
-    body: dict,
+    body: CalibrateRequest,
     session: Session = Depends(get_db_session),
     _user: dict = Depends(require_admin),
 ):
@@ -44,14 +50,9 @@ def calibrate_worktime(
 
     Requires admin role.
     """
-    standard_ms = body.get("standard_ms")
-    if standard_ms is None:
-        raise HTTPException(status_code=400, detail="Missing field: standard_ms")
-    if not isinstance(standard_ms, (int, float)) or standard_ms < 0:
-        raise HTTPException(status_code=400, detail="standard_ms must be a non-negative number")
-
     from app.models.database import WorktimeRecord
 
+    standard_ms = body.standard_ms
     record = session.get(WorktimeRecord, operation_id)
     if not record:
         raise HTTPException(status_code=404, detail="Worktime record not found")
@@ -264,16 +265,19 @@ def get_worktime_trend(
     day_start = now - timedelta(days=days - 1)
     start_ts = day_start.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    # Use DB-agnostic date function instead of SQLite-specific strftime
+    date_col = _date_format_func(session, ProcessSegment.start_time)
+
     # Single query: GROUP BY (date, action) — replaces two separate GROUP BY queries
     rows = session.query(
-        sa_func.strftime("%Y-%m-%d", ProcessSegment.start_time).label("day"),
+        date_col.label("day"),
         ProcessSegment.action,
         sa_func.sum(ProcessSegment.duration_ms).label("duration_ms"),
         sa_func.count(ProcessSegment.id).label("cnt"),
     ).filter(
         ProcessSegment.start_time >= start_ts,
     ).group_by(
-        sa_func.strftime("%Y-%m-%d", ProcessSegment.start_time),
+        date_col,
         ProcessSegment.action,
     ).all()
 
@@ -328,6 +332,16 @@ def get_therblig_distribution(
     """Get Therblig time distribution for pie chart."""
     data = worktime_aggregator.get_therblig_distribution(session, station, shift)
     return ApiResponse(data={"items": data}, timestamp=time.time())
+
+
+def _date_format_func(session: Session, column):
+    """Return a DB-agnostic date truncation expression for grouping.
+
+    Uses ``func.date()`` which works across SQLite, PostgreSQL, and MySQL
+    to extract the ``YYYY-MM-DD`` portion of a datetime column.
+    """
+    from sqlalchemy import func as sa_func
+    return sa_func.date(column)
 
 
 @router.get("/boxplot")
