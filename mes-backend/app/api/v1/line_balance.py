@@ -57,6 +57,7 @@ def _compute_line_balance_context(session: Session) -> dict:
         "si": metrics["smoothIndex"],
         "bottleneck": metrics["bottleneckStation"],
         "takt_time": takt_time,
+        "completed_qty": completed_qty,
         "avg_d": avg_d,
         "n": n,
     }
@@ -93,6 +94,11 @@ def line_balance_full(
     stations = ctx["stations"]
     n = ctx["n"]
     avg_d = ctx["avg_d"]
+    si = ctx["si"]
+    lbr = ctx["lbr"]
+    takt_time = ctx["takt_time"]
+    bottleneck = ctx["bottleneck"]
+    completed_qty = ctx["completed_qty"]
 
     # Lost capacity = (max - avg) * N stations
     max_d = max((s["time"] for s in stations), default=0)
