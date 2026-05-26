@@ -162,7 +162,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { BarChart, PieChart, RadarChart, BoxplotChart, HeatmapChart } from 'echarts/charts'
+import { BarChart, PieChart, RadarChart } from 'echarts/charts'
 import {
   TitleComponent,
   TooltipComponent,
@@ -178,7 +178,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LabelLayout, UniversalTransition } from 'echarts/features'
 
 echarts.use([
-  BarChart, PieChart, RadarChart, BoxplotChart, HeatmapChart,
+  BarChart, PieChart, RadarChart,
   TitleComponent, TooltipComponent, LegendComponent, GridComponent,
   RadarComponent, VisualMapComponent, ToolboxComponent, DatasetComponent,
   TransformComponent,
@@ -503,7 +503,9 @@ function renderRadarChart(lbData) {
 }
 
 // Boxplot Chart - Shift efficiency distribution (data from real API)
-function renderBoxplotChart(data) {
+async function renderBoxplotChart(data) {
+  const { BoxplotChart } = await import('echarts/charts')
+  echarts.use([BoxplotChart])
   if (!boxplotChartRef.value) return
   try {
     if (!boxplotChartInstance) {
@@ -526,13 +528,14 @@ function renderBoxplotChart(data) {
   for (const shift of (data.shifts || [])) {
     const shiftArr = data[shift]
     if (!shiftArr || shiftArr.length === 0) continue
-    // Filter out null entries (stations with no data for this shift)
-    const validBoxes = shiftArr.map((box, idx) => box ? box : null)
-    if (validBoxes.every(b => b === null)) continue
+    // Replace null entries with undefined to prevent ECharts from trying
+    // to access .value on null (TypeError crash)
+    const cleanData = shiftArr.map(box => box ?? undefined)
+    if (cleanData.every(b => b === undefined)) continue
     series.push({
       name: shiftLabels[shift] || shift,
       type: 'boxplot',
-      data: validBoxes,
+      data: cleanData,
       itemStyle: shift === 'morning' ? { color: '#1a6ef5', borderColor: '#1a6ef5' }
         : shift === 'afternoon' ? { color: '#10b981', borderColor: '#10b981' }
           : { color: '#f59e0b', borderColor: '#f59e0b' },
@@ -543,7 +546,6 @@ function renderBoxplotChart(data) {
 
   // Only render if we have actual data
   if (series.length === 0) {
-    shiftData.value = null
     return
   }
 
@@ -552,8 +554,11 @@ function renderBoxplotChart(data) {
       trigger: 'item',
       formatter: (params) => {
         if (params.componentType === 'series' && params.data) {
+          // Guard against null/undefined data (ECharts may call formatter
+          // even for entries we set as undefined)
+          if (!Array.isArray(params.data)) return ''
           const [min, q1, median, q3, max] = params.data
-          if (!min && !q1 && !median) return ''
+          if (min == null || q1 == null || median == null || q3 == null || max == null) return ''
           return `${params.seriesName}<br/>` +
             `Min: ${min.toFixed(1)}s<br/>` +
             `Q1: ${q1.toFixed(1)}s<br/>` +
@@ -589,7 +594,9 @@ function renderBoxplotChart(data) {
 }
 
 // Heatmap Chart - Therblig waste distribution (data from real API)
-function renderHeatmapChart(apiData) {
+async function renderHeatmapChart(apiData) {
+  const { HeatmapChart } = await import('echarts/charts')
+  echarts.use([HeatmapChart])
   if (!heatmapChartRef.value) return
   try {
     if (!heatmapChartInstance) {
