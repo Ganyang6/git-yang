@@ -55,7 +55,7 @@ COPY mes-backend/app/core/ ./app/core/
 COPY mes-backend/app/perception/ ./app/perception/
 
 # Copy config file
-COPY mes-backend/config.yaml /app/config/config.yaml
+COPY mes-backend/config.yaml /app/config.yaml
 
 # N-P1-27: Run as non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
@@ -80,4 +80,4 @@ ENV MEDIAPIPE_DISABLE_GPU=1
 # tini as PID 1: handles signal forwarding and zombie reaping,
 # preventing MediaPipe/TFLite internal threads from hanging on signals.
 ENTRYPOINT ["tini", "--"]
-CMD ["python", "main.py", "--no-display", "--config", "/app/config/config.yaml"]
+CMD ["python", "main.py", "--no-display", "--config", "/app/config.yaml"]
