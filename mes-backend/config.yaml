@@ -2,6 +2,9 @@ app:
   auth:
     token_expire_hours: 8
     token_remember_days: 7
+    # Brute-force protection: track failed logins per IP:username combo
+    login_max_attempts: 10
+    login_window_seconds: 60
     users:
     - display_name: Admin
       password_hash: $2b$12$yYiz6TEIg7uTmEK.0orLkO9BhzE0GUb.POjonAYISTrxko2yqVk9q

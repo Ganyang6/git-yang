@@ -51,3 +51,45 @@ def test_users_returned_when_configured(monkeypatch):
         f"got {len(users)}"
     )
     assert users[0]["username"] == "admin"
+
+
+def test_login_rate_limiting(monkeypatch, client):
+    """Rate limiting must return 429 after too many failed login attempts.
+
+    This test exercises the real rate-limiting path by temporarily disabling
+    MES_TEST_MODE, which otherwise bypasses rate limiting.
+    """
+    # Disable test mode so that the rate-limiting code path is active
+    # Use "0" to override conftest.py's default of "1"
+    monkeypatch.setenv("MES_TEST_MODE", "0")
+
+    from app.api.v1 import auth as auth_mod
+    # Reset rate limiter to a known clean state
+    with auth_mod._rate_limit_lock:
+        auth_mod._login_fail_tracker.clear()
+
+    # Read the actual rate limit from config (not the module default)
+    max_attempts, _ = auth_mod._get_rate_limit_config()
+
+    wrong_creds = {
+        "username": "admin",
+        "password": "wrong-password",
+    }
+
+    # Send failed login attempts up to the configured limit
+    for i in range(max_attempts):
+        resp = client.post("/api/auth/login", json=wrong_creds)
+        assert resp.status_code == 401, (
+            f"Attempt {i + 1}: expected 401 (invalid credentials), "
+            f"got {resp.status_code}: {resp.text[:200]}"
+        )
+
+    # The next attempt should trigger rate-limiting (429)
+    resp = client.post("/api/auth/login", json=wrong_creds)
+    assert resp.status_code == 429, (
+        f"Expected 429 (rate limited), got {resp.status_code}: {resp.text[:200]}"
+    )
+    detail = resp.json().get("detail", "")
+    assert "Too many failed login attempts" in detail, (
+        f"Unexpected 429 detail message: {detail}"
+    )

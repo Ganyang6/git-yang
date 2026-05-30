@@ -92,6 +92,11 @@ class AuthConfig:
     # Fixed users (Phase 3: config-based, not database-based)
     # Loaded from config.yaml -> app.auth.users
     users: Optional[List[dict]] = None
+    # Login rate limiting (brute-force protection)
+    # Maximum failed attempts per window, per IP:username combo
+    login_max_attempts: int = 5
+    # Rate limiting window in seconds
+    login_window_seconds: int = 60
 
 
 @dataclass
@@ -367,6 +372,8 @@ def load_app_config(config_path: Optional[str] = None) -> AppConfig:
         token_expire_hours=auth_cfg.get("token_expire_hours", config.auth.token_expire_hours),
         token_remember_days=auth_cfg.get("token_remember_days", config.auth.token_remember_days),
         users=auth_cfg.get("users", config.auth.users),
+        login_max_attempts=auth_cfg.get("login_max_attempts", config.auth.login_max_attempts),
+        login_window_seconds=auth_cfg.get("login_window_seconds", config.auth.login_window_seconds),
     )
 
     cors_cfg = app_cfg.get("cors", {})

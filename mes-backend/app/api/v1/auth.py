@@ -15,7 +15,6 @@ import os
 import secrets
 import threading
 import time
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
@@ -26,7 +25,6 @@ from pydantic import BaseModel
 
 from app.api.deps import require_admin
 from app.models.schemas import ApiResponse, LoginRequest, UserInfo
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +32,65 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 security = HTTPBearer(auto_error=False)
 
-# In-memory login rate limiter: {ip: [timestamp, ...]}
+class _BoundedDict:
+    """Bounded dict: evicts oldest entries when size exceeds max_size.
+
+    Used to limit _login_fail_tracker memory growth from inactive IPs.
+    All callers must hold _rate_limit_lock. Not thread-safe on its own.
+    Dict insertion order (Python 3.7+) is relied upon for FIFO eviction.
+    """
+
+    __slots__ = ("_max_size", "_data")
+
+    def __init__(self, max_size: int = 1000):
+        self._max_size = max_size
+        self._data: Dict[str, List[float]] = {}
+
+    def get_or_create(self, key: str) -> List[float]:
+        """Get list for key, creating an empty list if missing.
+
+        Evicts the oldest entry when at capacity.
+        """
+        if key not in self._data:
+            if len(self._data) >= self._max_size:
+                self._data.pop(next(iter(self._data)))
+            self._data[key] = []
+        return self._data[key]
+
+    def set(self, key: str, value: List[float]) -> None:
+        """Set value for key, evicting oldest entry if at capacity."""
+        if key not in self._data and len(self._data) >= self._max_size:
+            self._data.pop(next(iter(self._data)))
+        self._data[key] = value
+
+    def pop(self, key: str, default=None):
+        return self._data.pop(key, default)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
+# In-memory login rate limiter: {key: [timestamp, ...]}
+# key = f"{ip}" (before username is known) or f"{ip}:{username}"
 # NOTE: In multi-worker deployments, use Redis-backed rate limiting for accuracy.
-_login_rate_limit: Dict[str, List[float]] = defaultdict(list)
+_login_fail_tracker: _BoundedDict = _BoundedDict()
 _rate_limit_lock = threading.Lock()
+# Defaults used before config is loaded (loaded lazily per-request)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 60.0  # seconds
+
+
+def _get_rate_limit_config() -> tuple[int, float]:
+    """Load rate limit config (cached via load_app_config).
+
+    Returns (max_attempts, window_seconds).
+    """
+    from app.core.config import load_app_config
+    cfg = load_app_config()
+    return cfg.auth.login_max_attempts, float(cfg.auth.login_window_seconds)
 
 # Cached JWT secret to avoid reloading config on every request
 _jwt_secret_cache: str | None = None
@@ -223,28 +274,37 @@ def login(req: LoginRequest, request: Request):
     """Authenticate user and return JWT token.
 
     Conforms to spec_security_auth.md section 3.1.
-    Includes rate limiting: 5 attempts/minute/IP (spec 6.2).
+    Includes rate limiting: only counts failed attempts (spec 6.2).
     """
-    # Rate limiting (spec 6.2: 5 requests/minute/IP)
-    # Skip rate limiting in test environment
-    if not os.environ.get("PYTEST_CURRENT_TEST"):
-        _client_ip = request.client.host if request.client else "unknown"
+    # Resolve client IP unconditionally (used in logging and rate limiting)
+    _client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limiting (brute-force protection): only count FAILED attempts.
+    # Successful logins reset the failure counter for this IP:user combo.
+    # Config-driven: login_max_attempts, login_window_seconds.
+    _mode = os.environ.get("MES_TEST_MODE")
+    if _mode != "1":
+        _max_attempts, _window = _get_rate_limit_config()
+        # Before credentials are known, track by IP alone
+        _rate_key = _client_ip
         _now = time.time()
-        _window_start = _now - _LOGIN_WINDOW
+        _window_start = _now - _window
 
         with _rate_limit_lock:
-            _ts = _login_rate_limit[_client_ip]
-            _login_rate_limit[_client_ip] = [t for t in _ts if t > _window_start]
-            _ts = _login_rate_limit[_client_ip]
+            # Prune stale entries for this IP-based key
+            _ts = _login_fail_tracker.get_or_create(_rate_key)
+            _login_fail_tracker.set(_rate_key, [t for t in _ts if t > _window_start])
+            _ts = _login_fail_tracker.get_or_create(_rate_key)
 
-            if len(_ts) >= _LOGIN_MAX_ATTEMPTS:
-                logger.warning("Login rate limit exceeded for IP: %s", _client_ip)
+            if len(_ts) >= _max_attempts:
+                logger.warning(
+                    "Login rate limit hit for IP=%s (attempts=%d in %.0fs)",
+                    _client_ip, len(_ts), _window,
+                )
                 raise HTTPException(
                     status_code=429,
-                    detail=f"Too many login attempts. Try again in {_LOGIN_WINDOW:.0f} seconds.",
+                    detail=f"Too many failed login attempts. Try again in {_window:.0f} seconds.",
                 )
-
-            _ts.append(_now)
 
     users = _get_users()
     user = None
@@ -254,10 +314,25 @@ def login(req: LoginRequest, request: Request):
             break
 
     if user is None or not _verify_password(req.password, user["password_hash"]):
+        # Record the failed attempt under the IP key
+        if os.environ.get("MES_TEST_MODE") != "1":
+            with _rate_limit_lock:
+                _login_fail_tracker.get_or_create(_rate_key).append(time.time())
+
+        logger.error(
+            "Failed login attempt for user=%s from IP=%s", req.username, _client_ip
+        )
         raise HTTPException(
             status_code=401,
             detail="Invalid credentials",
         )
+
+    # Successful login: clear failure counter for this IP and IP:user
+    if os.environ.get("MES_TEST_MODE") != "1":
+        with _rate_limit_lock:
+            _user_key = f"{_client_ip}:{user['username']}"
+            _login_fail_tracker.pop(_rate_key, None)
+            _login_fail_tracker.pop(_user_key, None)
 
     access_token = create_access_token(
         username=user["username"],
