@@ -23,7 +23,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.enums import OrderStatus
-from app.models.database import get_session, Order, Customer
+from app.models.database import Order, Customer
+from app.models.quality_check import QualityCheck
 from app.models.schemas import ApiResponse
 from app.api.deps import get_db_session, require_read_all
 
@@ -80,11 +81,22 @@ def report_kpi(
     completion_rate = (completed_orders / total_orders) if total_orders > 0 else 0.0
     on_time_rate = (on_time / completed_orders) if completed_orders > 0 else 0.0
 
+    # 良品率: aggregate from quality_checks
+    quality_data = session.query(
+        func.coalesce(func.sum(QualityCheck.checked_qty), 0).label("total_checked"),
+        func.coalesce(func.sum(QualityCheck.ok_qty), 0).label("total_ok"),
+    ).first()
+
+    if quality_data and quality_data.total_checked > 0:
+        yield_rate = round(quality_data.total_ok / quality_data.total_checked * 100, 1)
+    else:
+        yield_rate = None
+
     return ApiResponse(
         data={
             "totalOutput": int(total_output),
             "completionRate": round(completion_rate, 4),
-            "yieldRate": None,  # TODO: requires defect tracking module
+            "yieldRate": yield_rate,
             "onTimeRate": round(on_time_rate, 4),
             "oee": None,  # TODO: requires PLC integration (availability * performance * quality)
             "changes": None,  # TODO: requires historical period comparison

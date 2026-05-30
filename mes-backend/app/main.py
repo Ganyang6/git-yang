@@ -40,6 +40,7 @@ from app.api.sse import router as sse_router
 from app.api.sse_chat import router as sse_chat_router
 from app.api.v1.anomaly import router as anomaly_router
 from app.api.v1.video import router as video_router
+from app.api.v1.quality import router as quality_router
 
 from app.core.metrics import tasks_created, tasks_completed, tasks_failed, tasks_archived
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
@@ -380,6 +381,7 @@ app.include_router(sse_router)
 app.include_router(sse_chat_router)
 app.include_router(anomaly_router)
 app.include_router(video_router)
+app.include_router(quality_router)
 
 
 # Development/testing: expose a controlled error endpoint to validate global error handling
