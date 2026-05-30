@@ -23,10 +23,10 @@ logger = logging.getLogger("mes_backend.websocket")
 router = APIRouter()
 
 # Maximum concurrent WebSocket connections to prevent resource exhaustion.
-_MAX_WS_CONNECTIONS = 50
+_MAX_WS_CONNECTIONS = 500
 
 # Auth frame must arrive within this timeout after connection.
-_AUTH_TIMEOUT_SECONDS = 5.0
+_AUTH_TIMEOUT_SECONDS = 30.0
 
 
 class ConnectionManager:
@@ -54,6 +54,7 @@ class ConnectionManager:
             len(self.active_connections),
             station_id,
         )
+        return True
 
     def disconnect(self, websocket: WebSocket) -> None:
         self.active_connections.discard(websocket)
@@ -126,6 +127,7 @@ async def websocket_metrics(
     # Accept connection first (before auth) to allow auth-frame handshake.
     accepted = await ws_manager.connect(websocket, station)
     if not accepted:
+        ws_manager.disconnect(websocket)
         return
 
     # --- Phase 1: wait for auth frame ---
@@ -139,6 +141,9 @@ async def websocket_metrics(
         ws_manager.disconnect(websocket)
         return
     except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+        return
+    except Exception:
         ws_manager.disconnect(websocket)
         return
 
@@ -157,7 +162,6 @@ async def websocket_metrics(
         ws_manager.disconnect(websocket)
         return
 
-    logger.info("WebSocket authenticated user: %s", user_id)
     await websocket.send_text(json.dumps({"type": "auth_ok"}))
 
     # --- Phase 2: normal message loop ---
@@ -179,5 +183,5 @@ async def websocket_metrics(
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception as e:
-        logger.error("WebSocket error: %s", e)
+        logger.error("WebSocket error: %s", e, exc_info=True)
         ws_manager.disconnect(websocket)
