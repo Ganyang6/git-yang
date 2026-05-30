@@ -8,3 +8,6 @@ __pycache__/
 .env.local
 *.md
 logs/
+**/data/
+**/*.db
+**/*.sqlite3

@@ -1,3 +1,5 @@
+# NOTE: Docker only reads .dockerignore from the build context root (projects/).
+# This file exists as an IDE hint only.
 **/__pycache__
 **/*.pyc
 **/.pytest_cache

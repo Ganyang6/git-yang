@@ -25,8 +25,17 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-def seed_customers(session) -> list[Customer]:
+def _count(session, model) -> int:
+    """Return row count for a model."""
+    return session.query(model).count()
+
+
+def seed_customers(session) -> int:
     """Create sample customers."""
+    if _count(session, Customer) > 0:
+        logger.info("Customers already exist, skipping")
+        return 0
+
     data = [
         Customer(name="Shenzhen Electronics Co.", contact="Zhang Wei", phone="0755-12345678",
                   city="Shenzhen", customer_type="strategic", level="SA", status="active"),
@@ -45,11 +54,20 @@ def seed_customers(session) -> list[Customer]:
     for c in data:
         session.refresh(c)
     logger.info("Created %d customers", len(data))
-    return data
+    return len(data)
 
 
-def seed_orders(session, customers: list[Customer]) -> list[Order]:
+def seed_orders(session) -> int:
     """Create sample production orders."""
+    if _count(session, Order) > 0:
+        logger.info("Orders already exist, skipping")
+        return 0
+
+    customers = session.query(Customer).all()
+    if not customers:
+        logger.warning("No customers found, skipping orders")
+        return 0
+
     products = [
         ("PCB Board A", "FR4 1.6mm"),
         ("PCB Board B", "FR4 0.8mm"),
@@ -83,11 +101,15 @@ def seed_orders(session, customers: list[Customer]) -> list[Order]:
     for o in orders:
         session.refresh(o)
     logger.info("Created %d orders", len(orders))
-    return orders
+    return len(orders)
 
 
-def seed_equipment(session) -> list[Equipment]:
+def seed_equipment(session) -> int:
     """Create sample equipment/workstations."""
+    if _count(session, Equipment) > 0:
+        logger.info("Equipment already exist, skipping")
+        return 0
+
     data = [
         Equipment(name="Station 01 - SMT", model="Yamaha YSM20", workshop="Line A",
                    status="running", oee=0.88, utilization=0.92, fault_count=2,
@@ -116,11 +138,15 @@ def seed_equipment(session) -> list[Equipment]:
     for e in data:
         session.refresh(e)
     logger.info("Created %d equipment entries", len(data))
-    return data
+    return len(data)
 
 
-def seed_inventory(session) -> list[InventoryItem]:
+def seed_inventory(session) -> int:
     """Create sample inventory items."""
+    if _count(session, InventoryItem) > 0:
+        logger.info("Inventory items already exist, skipping")
+        return 0
+
     data = [
         InventoryItem(code="RM-001", name="FR4 Copper Clad", spec="1.6mm Double",
                        category="material", unit="sheet", stock=500.0, safe_stock=100.0,
@@ -147,7 +173,7 @@ def seed_inventory(session) -> list[InventoryItem]:
     for item in data:
         session.refresh(item)
     logger.info("Created %d inventory items", len(data))
-    return data
+    return len(data)
 
 
 def main() -> None:
@@ -157,16 +183,16 @@ def main() -> None:
     session = get_session()
 
     try:
-        customers = seed_customers(session)
-        orders = seed_orders(session, customers)
-        equipment = seed_equipment(session)
-        inventory = seed_inventory(session)
+        c_customers = seed_customers(session)
+        c_orders = seed_orders(session)
+        c_equipment = seed_equipment(session)
+        c_inventory = seed_inventory(session)
 
         logger.info("--- Seed Summary ---")
-        logger.info("Customers:  %d", len(customers))
-        logger.info("Orders:     %d", len(orders))
-        logger.info("Equipment:  %d", len(equipment))
-        logger.info("Inventory:  %d", len(inventory))
+        logger.info("Customers:  %d", c_customers)
+        logger.info("Orders:     %d", c_orders)
+        logger.info("Equipment:  %d", c_equipment)
+        logger.info("Inventory:  %d", c_inventory)
         logger.info("Seed complete.")
     finally:
         session.close()
