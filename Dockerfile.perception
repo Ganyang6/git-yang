@@ -26,11 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 复制并安装依赖
 COPY mes-backend/requirements.txt ./
+# 预下载的 mediapipe wheels（避免编译/重下）
+COPY mediapipe-wheels/ /wheels/
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
     --trusted-host mirrors.aliyun.com -r requirements.txt \
     opencv-python-headless \
-    mediapipe==0.10.14
+    /wheels/mediapipe-*.whl
 
 # ========== 生产阶段 ==========
 FROM python:3.12-slim AS production

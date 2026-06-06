@@ -149,3 +149,4 @@ node_modules_old_*
 
 # OS metadata
 Thumbs.db
+mediapipe-wheels/
