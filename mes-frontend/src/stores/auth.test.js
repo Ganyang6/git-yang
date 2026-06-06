@@ -124,6 +124,21 @@ describe('auth store', () => {
       expect(store.isLoggedIn).toBe(false)
       expect(localStorage.getItem('mes_auth_token')).toBeNull()
     })
+
+    it('clears sessionStorage on logout', () => {
+      // Simulate token stored in sessionStorage (e.g. 'do not remember me')
+      sessionStorage.setItem('mes_auth_token', 'session-jwt')
+
+      const store = useAuthStore()
+      expect(store.token).toBe('session-jwt')
+
+      store.logout()
+
+      expect(store.token).toBeNull()
+      expect(store.isLoggedIn).toBe(false)
+      // sessionStorage must also be cleared
+      expect(sessionStorage.getItem('mes_auth_token')).toBeNull()
+    })
   })
 
   describe('restore', () => {

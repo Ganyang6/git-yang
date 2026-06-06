@@ -28,8 +28,8 @@ function getRouteRecords(routes, flat = true) {
 
 describe('router configuration', () => {
   it('uses hash history mode', () => {
-    // Hash history has base = '/#'
-    expect(router.options.history.base).toBe('/#')
+    // Hash history uses WebHashHistory
+    expect(router.options.history.constructor.name).toBe('WebHashHistory')
   })
 
   it('redirects / to /dashboard', () => {

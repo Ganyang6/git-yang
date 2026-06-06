@@ -26,6 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem(TOKEN_KEY, t)
     } else {
       localStorage.removeItem(TOKEN_KEY)
+      sessionStorage.removeItem(TOKEN_KEY)
     }
   }
 

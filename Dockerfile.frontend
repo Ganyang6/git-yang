@@ -27,11 +27,12 @@ RUN --mount=type=cache,target=/app/node_modules/.cache \
 # --- 生产阶段 ---
 FROM nginx:1.25-alpine AS production
 
-# 复制 Nginx envsubst 模板（在启动时通过 envsubst 渲染）
-COPY nginx.conf /etc/nginx/nginx.conf.template
+# 复制 Nginx envsubst 模板到官方模板目录（容器启动时通过 nginx 官方 entrypoint 自动 envsubst 渲染）
+# nginx 官方 entrypoint 会自动处理 /etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# 启动前渲染模板并启动 nginx
-RUN echo '#!/bin/sh\nset -e\nenvsubst < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf\nexec nginx -g "daemon off;"' > /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+# 设置 envsubst 变量的默认值
+ENV UPLOAD_MAX_SIZE=500
 
 # 将构建产物复制到 Nginx 静态目录
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -40,7 +41,8 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /var/run && \
     chown -R nginx:nginx /usr/share/nginx/html && \
     touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
+    chown -R nginx:nginx /var/run/nginx.pid && \
+    chown -R nginx:nginx /etc/nginx/
 USER nginx
 
 # 健康检查
@@ -49,4 +51,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 EXPOSE 80
 
-CMD ["/docker-entrypoint.sh"]
+# 使用 nginx 官方 CMD（无需自定义 entrypoint）
+CMD ["nginx", "-g", "daemon off;"]

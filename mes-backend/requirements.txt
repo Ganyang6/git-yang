@@ -11,6 +11,7 @@ pytest>=7.0.0
 pytest-timeout>=2.2.0
 # Phase 3 dependencies
 python-multipart>=0.0.9
+requests>=2.31.0
 influxdb-client>=1.36.0
 PyJWT>=2.8.0
 passlib[bcrypt]>=1.7.4
