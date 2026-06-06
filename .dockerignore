@@ -11,3 +11,10 @@ logs/
 **/data/
 **/*.db
 **/*.sqlite3
+!mes-backend/requirements.txt
+!mes-backend/requirements-prod.txt
+
+# Prevent venv from being copied into Docker image
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/

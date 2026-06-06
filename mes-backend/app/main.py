@@ -313,7 +313,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MES Backend - Edge AI Worktime Analysis",
     description="Action classification, process segmentation, and worktime recording API.",
-    version="0.6.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -395,7 +395,7 @@ if bool(os.environ.get("PYTEST_CURRENT_TEST")):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "mes-backend", "version": "0.6.0"}
+    return {"status": "ok", "service": "mes-backend", "version": "1.0.0"}
 
 
 @app.get("/api/v1/ping")

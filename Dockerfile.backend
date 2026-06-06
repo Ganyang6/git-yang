@@ -11,6 +11,10 @@ FROM python:3.12-slim AS builder
 WORKDIR /build
 
 # 系统依赖（编译用，最终阶段不会保留）
+# 切换 Debian 镜像源（国内加速）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
@@ -37,6 +41,10 @@ FROM python:3.12-slim AS production
 WORKDIR /app
 
 # 最小化系统依赖（仅运行所需，不保留编译工具链）
+# 切换 Debian 镜像源（国内加速）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \

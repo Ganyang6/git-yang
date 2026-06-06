@@ -137,6 +137,7 @@ services:
       dockerfile: Dockerfile.perception
     image: mes-perception:latest
     container_name: mes-perception
+    profiles: ["full"]
     # Default: run command listener (subscribes to Redis for video tasks).
     # Override with: docker compose run perception python main.py --video ...
     command: ["python", "command_listener.py"]
@@ -187,6 +188,7 @@ services:
       dockerfile: Dockerfile.backend
     image: mes-backend:latest
     container_name: mes-worker
+    profiles: ["full"]
     command: celery -A app.core.celery_app worker --pool=solo --loglevel=info
     volumes:
       - ./mes-backend/config.yaml:/app/config.yaml:ro
@@ -238,6 +240,7 @@ services:
       dockerfile: Dockerfile.backend
     image: mes-backend:latest
     container_name: mes-beat
+    profiles: ["full"]
     command: celery -A app.core.celery_app beat --loglevel=info
     volumes:
       - ./mes-backend/config.yaml:/app/config.yaml:ro
