@@ -7,11 +7,11 @@ cameras:
   fps: 30
   backend: auto
 pose:
-  model_complexity: 1
+  model_complexity: 2
   smooth: true
   enable_segmentation: false
-  min_detection_confidence: 0.5
-  min_tracking_confidence: 0.5
+  min_detection_confidence: 0.2
+  min_tracking_confidence: 0.2
   static_image_mode: false
 buffer:
   max_queue_size: 10
@@ -20,16 +20,27 @@ performance:
   target_fps: 30
   max_latency_ms: 33.0
   num_landmarks: 33
+
+action_classifier:
+  window_size: 3
+  min_landmark_visibility: 0.3
+  min_visible_landmarks: 5
+
+process_segmenter:
+  confirmation_frames: 2
+  idle_timeout_frames: 60
+  max_segment_duration_s: 300.0
+
 hand_estimation:
   enabled: true
   num_hands: 2
-  min_detection_confidence: 0.5
-  min_tracking_confidence: 0.5
+  min_detection_confidence: 0.3
+  min_tracking_confidence: 0.3
 app:
   auth:
-    token_expire_hours: 8
-    token_remember_days: 7
-    login_max_attempts: 10
+    token_expire_hours: 87600
+    token_remember_days: 365
+    login_max_attempts: 5
     login_window_seconds: 60
     users:
     - display_name: Admin

@@ -178,8 +178,8 @@
           <template v-if="aiHealthData">
             <div class="ctx-item">
               <span class="ctx-key">API</span>
-              <span class="ctx-val" :class="aiHealthData.deepseek_ok ? 'val-success' : 'val-danger'">
-                {{ aiHealthData.deepseek_ok ? '在线' : '离线' }}
+              <span class="ctx-val" :class="aiHealthData.configured ? 'val-success' : 'val-danger'">
+                {{ aiHealthData.configured ? '在线' : '离线' }}
               </span>
             </div>
             <div class="ctx-item">
@@ -328,7 +328,6 @@ import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import {
   fetchAiContext,
   fetchAiStatus,
-  fetchAiHealth,
   fetchTaskStatus,
   submitAiTask
 } from '../api/index.js'
@@ -589,7 +588,7 @@ async function checkAiStatus() {
 
 async function loadAiHealth() {
   try {
-    aiHealthData.value = await fetchAiHealth()
+    aiHealthData.value = await fetchAiStatus()
   } catch {
     aiHealthData.value = null
   }

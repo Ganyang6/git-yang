@@ -219,7 +219,8 @@ const selectedStation = ref('')
 const stationOptions = ref([
   { value: 'WS-01', label: '工位 1' },
   { value: 'WS-02', label: '工位 2' },
-  { value: 'WS-03', label: '工位 3' }
+  { value: 'WS-03', label: '工位 3' },
+  { value: 'WS-04', label: '工位 4' }
 ])
 const selectedShift = ref('morning')
 const selectedLine = ref('')

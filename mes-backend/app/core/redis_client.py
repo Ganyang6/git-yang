@@ -56,6 +56,7 @@ STREAM_METRICS = "mes:metrics"
 STREAM_ANALYSIS_TASKS = "mes:analysis_tasks"
 STREAM_ANALYSIS_RESULTS = "mes:analysis_results"
 STREAM_SYSTEM_EVENTS = "mes:system_events"
+STREAM_VIDEO_PROGRESS = "mes:video_progress"
 STREAM_DEAD_LETTER = "mes:dead_letter"
 
 # All consumer group definitions: (stream_key, group_name)

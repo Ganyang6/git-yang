@@ -16,7 +16,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from app.core.errors import AppError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -42,6 +42,7 @@ from app.api.v1.anomaly import router as anomaly_router
 from app.api.v1.video import router as video_router
 from app.api.v1.quality import router as quality_router
 
+from app.api.deps import require_auth
 from app.core.metrics import tasks_created, tasks_completed, tasks_failed, tasks_archived
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
@@ -406,5 +407,7 @@ async def ping():
 # ── Prometheus metrics endpoint ──────────────────────────────────
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(
+    _user: dict = Depends(require_auth),
+):
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

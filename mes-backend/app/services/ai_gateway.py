@@ -139,13 +139,17 @@ class AIGateway:
     def _build_messages(
         self, prompt: str, context: Dict[str, object],
     ) -> List[ChatMessage]:
-        system_msg = (
-            "You are an AI manufacturing analysis assistant for an Edge MES "
-            "system. Provide concise, data-driven analysis and actionable "
-            "recommendations. Focus on manufacturing efficiency, work time "
-            "optimization, line balance, therblig analysis, and quality "
-            "improvement. Respond in the same language as the user's query."
-        )
+        # Use frontend-provided systemPrompt if available (from AiAnalysis.vue)
+        if "systemPrompt" in context and isinstance(context["systemPrompt"], str):
+            system_msg = context["systemPrompt"]
+        else:
+            system_msg = (
+                "You are an AI manufacturing analysis assistant for an Edge MES "
+                "system. Provide concise, data-driven analysis and actionable "
+                "recommendations. Focus on manufacturing efficiency, work time "
+                "optimization, line balance, therblig analysis, and quality "
+                "improvement. 请用中文回答。"
+            )
         enriched = prompt
         if context:
             ctx_parts = []

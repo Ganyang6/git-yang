@@ -23,15 +23,13 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import jwt
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import require_auth, require_engineer_or_above
 from app.models.schemas import ApiResponse
 from app.services.video_task_manager import get_task_manager
-from app.core.redis_client import CHANNEL_VIDEO_COMMANDS
+from app.core.redis_client import CHANNEL_VIDEO_COMMANDS, STREAM_VIDEO_PROGRESS
 
 logger = logging.getLogger("mes_backend.video")
 
@@ -362,6 +360,7 @@ def _format_sse(event_type: str, data: dict) -> str:
 async def stream_task_progress(
     task_id: str,
     request: Request,
+    _user: dict = Depends(require_auth),
 ):
     """SSE endpoint for real-time video processing progress.
 
@@ -369,27 +368,8 @@ async def stream_task_progress(
     messages for the given task_id. Falls back to polling the
     VideoTaskManager if Redis is unavailable.
 
-    Authentication: uses Authorization header (Bearer token) only.
+    Authentication: uses standard Bearer JWT via Depends(require_auth).
     """
-    # JWT authentication: Authorization header only (P1-13)
-    auth_header = request.headers.get("authorization", "")
-    auth_token = ""
-    if auth_header.startswith("Bearer "):
-        auth_token = auth_header[7:]
-
-    if not auth_token:
-        async def auth_fail():
-            yield _format_sse("error", {"status": "auth_required"})
-        return StreamingResponse(auth_fail(), media_type="text/event-stream")
-
-    try:
-        from app.api.v1.auth import _get_jwt_secret
-        secret = _get_jwt_secret()
-        jwt.decode(auth_token, secret, algorithms=["HS256"])
-    except (jwt.InvalidTokenError, jwt.ExpiredSignatureError, KeyError, ValueError):
-        async def invalid():
-            yield _format_sse("error", {"status": "auth_failed"})
-        return StreamingResponse(invalid(), media_type="text/event-stream")
 
     mgr = _get_mgr(request)
     task = mgr.get_task(task_id)
@@ -568,7 +548,7 @@ async def _poll_fallback(mgr, task_id: str, redis_client=None):
                 r = await redis_client.ensure_connected()
                 # Get recent progress entries from Stream (max 50 entries)
                 result = await r.xrevrange(
-                    "mes:video_progress",
+                    STREAM_VIDEO_PROGRESS,
                     count=50,
                 )
                 if result:

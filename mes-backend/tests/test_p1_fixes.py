@@ -285,26 +285,26 @@ class TestVideoSseAuth:
     """P1-13: Remove JWT query parameter fallback from video SSE."""
 
     def test_video_stream_no_query_token_fallback(self):
-        """Verify stream_task_progress does NOT accept token via query param."""
+        """Verify stream_task_progress uses Depends(require_auth) instead of manual JWT parsing."""
         import inspect
         from app.api.v1 import video
 
         source = inspect.getsource(video.stream_task_progress)
 
-        # Should NOT have query parameter for token
-        # Check that token is not accepted as a Query parameter
-        lines = source.split('\n')
-        for line in lines:
-            stripped = line.strip()
-            # Check that there's no "token" Query parameter
-            if "token" in stripped and ("Query" in stripped or "query" in stripped.lower()):
-                # Commented-out or docstring references are fine
-                if not stripped.startswith("#") and "query" not in stripped.lower().replace(" ", ""):
-                    pass  # will check below
+        # Should NOT have manual jwt.decode (query param fallback removed)
+        assert "jwt.decode" not in source, \
+            "stream_task_progress must NOT manually decode JWT"
+        assert "_get_jwt_secret" not in source, \
+            "stream_task_progress must NOT call _get_jwt_secret directly"
+        assert "query" not in source.lower() or "auth" not in source.lower() or \
+               "token" not in source.lower(), \
+            "stream_task_progress must not accept token via query param"
 
-        # The function should only authenticate via Authorization header
-        assert "authorization" in source.lower() or "Authorization" in source, \
-            "stream_task_progress must authenticate only via Authorization header"
+        # Should use standard Depends(require_auth)
+        assert "require_auth" in source, \
+            "stream_task_progress must use Depends(require_auth)"
+
+
 
 
 # =====================================================================

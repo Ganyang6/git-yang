@@ -132,7 +132,7 @@ def _build_worktime_prompt(
             "worktime analysis and therblig (motion element) optimization. "
             "Analyze the provided data and give actionable improvement "
             "suggestions. Use specific metrics and reference MOD method "
-            "values when applicable."
+            "values when applicable. 请用中文回答。"
         ),
     }
     user_content = (
@@ -164,7 +164,7 @@ def _build_line_balance_prompt(line_id: str, context_data: Optional[dict] = None
         "content": (
             "You are a manufacturing line balance expert. Analyze the "
             "workstation load distribution and identify bottlenecks. "
-            "Provide specific ECRS recommendations."
+            "Provide specific ECRS recommendations. 请用中文回答。"
         ),
     }
     user_content = f"Line: {line_id}\n\n"
@@ -186,7 +186,7 @@ def _build_report_prompt(report_type: str, params: Optional[dict] = None) -> Lis
         "role": "system",
         "content": (
             "You are a manufacturing data analyst. Generate a structured "
-            "report based on the provided parameters and data."
+            "report based on the provided parameters and data. 请用中文回答。"
         ),
     }
     user_content = f"Report type: {report_type}\n"

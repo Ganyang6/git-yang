@@ -54,7 +54,8 @@ class WorktimeAnalysisPrompt(PromptTemplate):
         "therblig (motion element) data and provide actionable insights for "
         "improving workstation efficiency. Use MOD (Methods-Time Measurement) "
         "values (1 MOD = 0.129 seconds) when referencing time standards. "
-        "Focus on ECRS principles: Eliminate, Combine, Rearrange, Simplify."
+        "Focus on ECRS principles: Eliminate, Combine, Rearrange, Simplify. "
+        "请用中文回答。"
     )
 
     def build(
@@ -119,7 +120,8 @@ class LineBalancePrompt(PromptTemplate):
         "You are a production line balance optimization expert. Analyze "
         "workstation load distribution and provide specific recommendations "
         "for improving line balance rate. Target balance rate is above 85%. "
-        "Apply ECRS (Eliminate, Combine, Rearrange, Simplify) methodology."
+        "Apply ECRS (Eliminate, Combine, Rearrange, Simplify) methodology. "
+        "请用中文回答。"
     )
 
     def build(
@@ -176,7 +178,8 @@ class AnomalyDetectionPrompt(PromptTemplate):
     SYSTEM_CONTEXT = (
         "You are a manufacturing quality and anomaly analysis expert. "
         "Explain detected anomalies in production data, identify potential "
-        "root causes, and suggest corrective actions."
+        "root causes, and suggest corrective actions. "
+        "请用中文回答。"
     )
 
     def build(
@@ -237,7 +240,8 @@ class TherbligOptimizationPrompt(PromptTemplate):
         "- S (Simplify): Reduce complexity of required motions\n\n"
         "Use MOD (Methods-Time Measurement) values: 1 MOD = 0.129 seconds.\n"
         "Provide structured, actionable improvement suggestions with "
-        "quantified MOD savings estimates."
+        "quantified MOD savings estimates. "
+        "请用中文回答。"
     )
 
     def build(

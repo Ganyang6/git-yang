@@ -72,9 +72,11 @@ RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD python -c "from app.main import app; print('ok')" || exit 1
+# 健康检查：通过 HTTP /health 端点检测应用状态
+# 直接使用 Python 标准库发送请求，无需额外依赖 curl/wget。
+# interval=15s 确保快速发现异常，较短的 start-period 适合启动较快的 uvicorn。
+HEALTHCHECK --interval=15s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=8); print('ok')"
 
 EXPOSE 8000
 

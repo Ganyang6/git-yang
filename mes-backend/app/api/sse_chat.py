@@ -19,7 +19,6 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
@@ -27,9 +26,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["ai-chat"])
 
-_security = HTTPBearer(auto_error=False)
-
-from app.api.deps import get_db_session
+from app.api.deps import get_db_session, require_auth
 from app.models.schemas import ApiResponse
 
 # Fallback gateway (used only when lifespan init failed)
@@ -115,19 +112,12 @@ async def _get_gateway(request: Request):
         async with _gateway_lock:
             if _gateway is None:
                 from app.services.ai_gateway import AIGateway
-                _gateway = AIGateway()
-                logger.warning("SSE chat: using fallback AI Gateway (no Redis cache)")
+                _gateway = AIGateway()  # no api_key — fallback instance
+                logger.warning(
+                    "SSE chat: using fallback standalone AIGateway (lifespan init likely failed). "
+                    "AI chat unavailable until AIGateway is properly initialized with api_key."
+                )
     return _gateway
-
-
-# ── JWT Auth Helper ─────────────────────────────────────────────────
-
-def _get_current_user(credentials: HTTPAuthorizationCredentials):
-    """Extract current user from JWT, raise 401 if invalid."""
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    from app.api.v1.auth import get_current_user
-    return get_current_user(credentials)
 
 
 # ── SSE Streaming Endpoint ──────────────────────────────────────────
@@ -136,14 +126,13 @@ def _get_current_user(credentials: HTTPAuthorizationCredentials):
 async def chat_stream(
     req: StreamChatRequest,
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    _user: dict = Depends(require_auth),
 ):
     """Stream AI chat responses via Server-Sent Events.
 
     Returns SSE stream with incremental response chunks.
-    Requires JWT authentication.
+    Requires JWT authentication via Depends(require_auth).
     """
-    user = _get_current_user(credentials)
     gateway = await _get_gateway(request)
 
     async def event_generator():
@@ -163,7 +152,7 @@ async def chat_stream(
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            logger.error("SSE stream error for user %s: %s", user.get("sub", "?"), e, exc_info=True)
+            logger.error("SSE stream error for user %s: %s", _user.get("sub", "?"), e, exc_info=True)
             error_data = json.dumps(
                 {"type": "error", "message": "Internal server error"}, ensure_ascii=False,
             )
@@ -187,14 +176,13 @@ async def submit_analysis(
     req: SubmitAnalysisRequest,
     request: Request,
     background_tasks: BackgroundTasks,
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    _user: dict = Depends(require_auth),
     db: Session = Depends(get_db_session),
 ):
     """Submit an async AI analysis task.
 
     Returns a task_id for polling via GET /api/ai/task/{task_id}/status.
     """
-    _get_current_user(credentials)
     gateway = await _get_gateway(request)
 
     from app.models.database import AIAnalysisResult
@@ -263,14 +251,13 @@ async def submit_analysis(
 @router.get("/task/{task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status(
     task_id: str,
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    _user: dict = Depends(require_auth),
     db: Session = Depends(get_db_session),
 ):
     """Query the status of an async AI analysis task.
 
     Checks both Celery result backend and local database for status.
     """
-    _get_current_user(credentials)
 
     from app.models.database import AIAnalysisResult
 
@@ -345,11 +332,10 @@ async def list_tasks(
     station_id: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    _user: dict = Depends(require_auth),
     db: Session = Depends(get_db_session),
 ):
     """List AI analysis tasks with optional filtering."""
-    _get_current_user(credentials)
 
     from app.models.database import AIAnalysisResult
 
@@ -399,10 +385,9 @@ async def list_tasks(
 @router.get("/health")
 async def ai_health(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    _user: dict = Depends(require_auth),
 ):
     """Get AI service health status."""
-    _get_current_user(credentials)
     gateway = await _get_gateway(request)
     return ApiResponse(
         data=gateway.get_status(),

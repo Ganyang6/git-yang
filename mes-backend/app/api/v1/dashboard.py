@@ -20,6 +20,7 @@ import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -32,6 +33,9 @@ from app.models.database import (
 from app.models.schemas import ApiResponse
 from app.services.line_balance_service import compute_line_balance_rate
 from app.api.deps import get_db_session, require_read_all
+
+# Asia/Shanghai timezone constant for shift/day calculations
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 # Maximum number of segments to load per query to prevent unbounded memory usage.
 # 50000 segments at ~200 bytes each = ~10MB, which is reasonable for KPI calculations.
@@ -94,7 +98,7 @@ def _get_shift_seconds() -> tuple[float, float]:
       afternoon: 14:00-22:00 (28800s)
       night:     22:00-06:00 (28800s)
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(SHANGHAI_TZ)
     hour = now.hour
     if 6 <= hour < 14:
         shift_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
@@ -132,18 +136,22 @@ def dashboard_kpi(
 
     Performance: uses SQL aggregation and in-memory cache (15s TTL).
     """
-    now = datetime.now(timezone.utc)
+    now_sh = datetime.now(SHANGHAI_TZ)
 
-    # Determine time range
+    # Determine time range (based on Asia/Shanghai calendar day)
     if range_param == "week":
-        range_start = now - timedelta(days=7)
+        range_start = now_sh - timedelta(days=7)
         cache_key = "kpi_week"
     elif range_param == "month":
-        range_start = now - timedelta(days=30)
+        range_start = now_sh - timedelta(days=30)
         cache_key = "kpi_month"
     else:
-        range_start = now - timedelta(hours=8)
+        # Start of today in Shanghai timezone
+        range_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0)
         cache_key = "kpi_today"
+
+    # Convert Shanghai timezone range_start to UTC for DB query (timestamps stored in UTC)
+    range_start = range_start.astimezone(timezone.utc)
 
     # Check cache (15s TTL for KPI)
     cached = _get_cached(cache_key, ttl=15.0)
@@ -249,8 +257,9 @@ def ai_context(
     if cached is not None:
         return ApiResponse(data=cached, timestamp=time.time())
 
-    now = datetime.now(timezone.utc)
-    range_start = now - timedelta(hours=8)
+    now_sh = datetime.now(SHANGHAI_TZ)
+    # Start of today in Shanghai, then convert to UTC for DB query
+    range_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     # ── Aggregated segment stats (single query, no object loading) ──
     segment_stats_query = session.query(
@@ -321,8 +330,8 @@ def station_timeline(
 
     Returns per-station time breakdown by action category.
     """
-    now = datetime.now(timezone.utc)
-    shift_start = now - timedelta(hours=8)
+    now_sh = datetime.now(SHANGHAI_TZ)
+    shift_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     # Get equipment list as stations
     stations = session.query(Equipment).order_by(Equipment.id).all()
@@ -388,8 +397,8 @@ def therblig_distribution(
 
     Maps action labels to therblig symbols and calculates percentage.
     """
-    now = datetime.now(timezone.utc)
-    range_start = now - timedelta(hours=8)
+    now_sh = datetime.now(SHANGHAI_TZ)
+    range_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     query = session.query(ProcessSegment).filter(
         ProcessSegment.start_time >= range_start,
@@ -447,8 +456,8 @@ def bottleneck_diagnosis(
       0.80 <= BI < 1.20: Normal
       BI < 0.80: Light load
     """
-    now = datetime.now(timezone.utc)
-    range_start = now - timedelta(hours=8)
+    now_sh = datetime.now(SHANGHAI_TZ)
+    range_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     results_query = session.query(
         ProcessSegment.station_id,
