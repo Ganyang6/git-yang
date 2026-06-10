@@ -768,6 +768,7 @@ def run_video_pipeline(config_path='config.yaml',
         pose_detected_frames = 0
         frame_fail_count = 0  # P1-1: Track consecutive frame failures
         consecutive_failures = 0
+        base_timestamp = time.time()  # wall clock at video start, used as timestamp baseline only
 
         while True:
             iteration += 1
@@ -786,12 +787,14 @@ def run_video_pipeline(config_path='config.yaml',
                 if not ret:
                     break
 
+                frame_loop_start = time.monotonic()  # for frame-rate throttling (monotonic clock)
+
                 # Apply video optimization pipeline (downscale + CLAHE + skip detection)
                 opt_result = optimizer.process_frame(frame, frame_index=global_frame_seq)
                 processed_frame = opt_result['frame']
                 should_infer = opt_result['should_infer']
 
-                frame_timestamp = time.time()
+                frame_timestamp = base_timestamp + (global_frame_seq / video_fps)
                 processed_frames += 1
                 global_frame_seq += 1
 
@@ -801,6 +804,7 @@ def run_video_pipeline(config_path='config.yaml',
                         optimizer.update_last_result(pose_result)
                     else:
                         pose_result = optimizer.get_last_result()
+                    consecutive_failures = 0  # reset on success
                 except Exception as exc:
                     # P1-1 FIX: Track consecutive frame failures with threshold
                     consecutive_failures += 1
@@ -904,8 +908,8 @@ def run_video_pipeline(config_path='config.yaml',
                     time.sleep(0.05)
 
                 if frame_interval > 0:
-                    elapsed_in_frame = time.perf_counter() - frame_timestamp
-                    sleep_time = frame_interval - elapsed_in_frame
+                    loop_elapsed = time.monotonic() - frame_loop_start
+                    sleep_time = frame_interval - loop_elapsed
                     if sleep_time > 0:
                         time.sleep(sleep_time)
 

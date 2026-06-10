@@ -513,7 +513,7 @@ async function calibrateHandler(op) {
     return
   }
   try {
-    await calibrateWorktime(op.id, newValue)
+    await calibrateWorktime(op.id, newValue * 1000)
     await loadData()
   } catch (err) {
     errorMsg.value = '校准失败: ' + (err.message || '未知错误')

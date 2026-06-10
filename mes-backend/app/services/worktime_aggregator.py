@@ -486,7 +486,13 @@ def get_boxplot_stats(
 
         q1 = _percentile(s, 0.25)
         q3 = _percentile(s, 0.75)
-        return [round(minimum, 2), round(q1, 2), round(median, 2), round(q3, 2), round(maximum, 2)]
+        return [
+            round(minimum / 1000.0, 2),
+            round(q1 / 1000.0, 2),
+            round(median / 1000.0, 2),
+            round(q3 / 1000.0, 2),
+            round(maximum / 1000.0, 2),
+        ]
 
     result: Dict = {"stations": all_stations, "shifts": all_shifts}
     for shift_name in all_shifts:

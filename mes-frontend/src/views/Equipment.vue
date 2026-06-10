@@ -45,7 +45,24 @@
     </div>
 
     <!-- Equipment Cards -->
-    <div v-if="!filteredEquipment.length && !loading" class="empty-state">无匹配设备</div>
+    <div v-if="!filteredEquipment.length && !loading && equipment.length > 0" class="empty-state">无匹配设备</div>
+    <div v-if="!equipment.length && !loading" class="empty-state">
+      <div style="margin-bottom: 12px">暂无设备数据，是否立即添加默认工位？</div>
+      <button class="btn btn-primary" @click="addDefaultStations">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        添加默认工位
+      </button>
+    </div>
     <div v-if="filteredEquipment.length" class="equipment-grid">
       <div v-for="eq in filteredEquipment" :key="eq.id" class="eq-card card" :class="`eq-${eq.status}`">
         <div class="eq-card-header">
@@ -79,7 +96,7 @@
           </div>
           <div class="eq-metric">
             <div class="eq-metric-val">{{ eq.mtbf }}h</div>
-            <div class="eq-metric-label">MTBF</div>
+            <div class="eq-metric-label">平均无故障时间</div>
           </div>
         </div>
 
@@ -208,7 +225,7 @@
               <input v-model.number="editEquipmentData.faultCount" class="input" type="number" min="0" step="1" />
             </div>
             <div class="form-group">
-              <label class="form-label">MTBF (小时)</label>
+              <label class="form-label">平均无故障时间 (小时)</label>
               <input v-model.number="editEquipmentData.mtbf" class="input" type="number" min="0" step="0.1" />
             </div>
           </div>
@@ -339,7 +356,7 @@ const statusOverview = computed(() => {
 })
 
 function statusLabel(s) {
-  return { running: '运行中', idle: '待机', maintenance: '维护' }[s] || s
+  return { running: '运行中', idle: '待机', maintenance: '维护', offline: '离线' }[s] || s
 }
 function statusBadgeType(s) {
   return { running: 'success', idle: 'warning', maintenance: 'danger' }[s] || 'gray'
@@ -353,6 +370,41 @@ const filteredEquipment = computed(() => {
     e => e.name.toLowerCase().includes(q) || (e.model || '').toLowerCase().includes(q)
   )
 })
+
+// Add 5 default stations in batch
+async function addDefaultStations() {
+  const defaults = [
+    { name: 'WS-01', model: '标准工位', workshop: '总装车间', status: 'idle' },
+    { name: 'WS-02', model: '标准工位', workshop: '总装车间', status: 'idle' },
+    { name: 'WS-03', model: '标准工位', workshop: '总装车间', status: 'idle' },
+    { name: 'WS-04', model: '标准工位', workshop: '总装车间', status: 'idle' },
+    { name: 'WS-05', model: '标准工位', workshop: '总装车间', status: 'idle' },
+  ]
+  // Fetch existing equipment to avoid duplicate creation
+  let existingNames = new Set()
+  try {
+    const existing = await fetchEquipment()
+    existingNames = new Set(existing.map(e => e.name))
+  } catch {
+    // proceed optimistically if fetch fails
+  }
+  const toCreate = defaults.filter(eq => !existingNames.has(eq.name))
+  if (toCreate.length === 0) {
+    showToast('默认工位已存在', 'info')
+    return
+  }
+  const results = await Promise.allSettled(
+    toCreate.map(eq => apiCreateEquipment(eq))
+  )
+  const created = results.filter(r => r.status === 'fulfilled').length
+  if (created > 0) {
+    showToast(`成功创建 ${created} 个默认工位`, 'success')
+    await loadEquipment()
+    await loadStats()
+  } else {
+    showToast('添加失败，请重试', 'warning')
+  }
+}
 
 // C7: Open add modal
 function openAddModal() {
@@ -399,10 +451,26 @@ async function submitEditEquipment() {
     showToast('故障次数不能小于 0', 'warning'); return
   }
   if (vals.mtbf != null && vals.mtbf < 0) {
-    showToast('MTBF 不能小于 0', 'warning'); return
+    showToast('平均无故障时间不能小于 0', 'warning'); return
+  }
+  // 构建 payload：排除 id（在 URL 中传递），显式转换数字字段
+  const payload = {
+    name: editEquipmentData.value.name,
+    model: editEquipmentData.value.model,
+    workshop: editEquipmentData.value.workshop,
+    status: editEquipmentData.value.status,
+    nextMaint: editEquipmentData.value.nextMaint
+  }
+  // 数字字段显式转 Number，防止 v-model.number 在空值时返回 ''
+  const numericFields = ['oee', 'utilization', 'faultCount', 'mtbf', 'todayUtil']
+  for (const field of numericFields) {
+    const val = editEquipmentData.value[field]
+    if (val != null && val !== '') {
+      payload[field] = Number(val)
+    }
   }
   try {
-    await apiUpdateEquipment(editEquipmentData.value.id, editEquipmentData.value)
+    await apiUpdateEquipment(editEquipmentData.value.id, payload)
     showEditModal.value = false
     showToast('设备更新成功', 'success')
     await loadEquipment()

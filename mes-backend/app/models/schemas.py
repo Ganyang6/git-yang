@@ -26,6 +26,7 @@ class ActionLabel(str, Enum):
     RELEASE = "release"          #释放
     INSPECT = "inspect"          #检验
     WAIT = "wait"                #等待
+    HOLD = "hold"                #持住(Phase I, currently mapped to WAIT)
     IDLE = "idle"                #空闲(未检测到人)
 
 
@@ -243,6 +244,7 @@ class CustomerUpdate(BaseModel):
 # -- Inventory --
 
 class InventoryCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     code: str = Field(..., min_length=1, max_length=64)
     name: str = Field(..., min_length=1, max_length=128)
     spec: str = ""

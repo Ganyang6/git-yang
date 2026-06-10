@@ -599,7 +599,7 @@ async function handleDeleteItem(item) {
     return
   }
   try {
-    await openConfirm({ title: '删除确认', message: `确定要删除物料 ${item.code} - ${item.name} 吗？` })
+    if (!await openConfirm({ title: '删除确认', message: `确定要删除物料 ${item.code} - ${item.name} 吗？` })) return
     await deleteInventoryItem(item.code)
     showToast('删除成功', 'success')
     await loadInventory()
@@ -641,7 +641,13 @@ async function submitAddItem() {
     showToast('请填写物料编码和名称', 'warning')
     return
   }
-  await handleAddItem(addItemForm.value)
+  // 确保数字字段类型正确（后端期望 price: float, safeStock: int）
+  const payload = {
+    ...addItemForm.value,
+    price: Number(addItemForm.value.price) || 0,
+    safeStock: Number(addItemForm.value.safeStock) || 0
+  }
+  await handleAddItem(payload)
 }
 
 async function handleInbound(data) {

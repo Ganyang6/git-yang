@@ -10,13 +10,13 @@
           <span
             v-if="wsConnected"
             class="ws-indicator ws-connected"
-            title="WebSocket connected - real-time updates active"
-          >LIVE</span>
+            title="WebSocket 已连接 - 实时更新"
+          >在线</span>
           <span
             v-else
             class="ws-indicator ws-disconnected"
-            title="WebSocket disconnected - using polling"
-          >OFFLINE</span>
+            title="WebSocket 已断开 - 轮询模式"
+          >离线</span>
         </div>
       </div>
       <div class="flex gap-2 items-center">
@@ -275,10 +275,10 @@
               <div class="timeline-oee">OEE {{ station.oee }}%</div>
             </div>
           </template>
-          <div v-else class="chart-placeholder no-data-placeholder" style="height: 80px">
-            暂无时间线数据
-          </div>
-          <div class="timeline-legend">
+          <router-link v-else to="/equipment" class="chart-placeholder no-data-placeholder" style="height: 80px; cursor: pointer; text-decoration: none; color: var(--primary, #1a6ef5)">
+            工位未配置 → 去设备管理配置
+          </router-link>
+          <div v-if="stationTimeline && stationTimeline.length" class="timeline-legend">
             <span class="tl-item seg-work">有效作业</span>
             <span class="tl-item seg-wait">等待</span>
             <span class="tl-item seg-machine">设备运行</span>
@@ -749,8 +749,8 @@ function onSseEvent(event) {
   if (event.type === 'alert') {
     const d = event.data
     const level = d.level || 'info'
-    const title = d.title || 'System Alert'
-    const message = d.message || 'An alert was received'
+    const title = d.title || '系统告警'
+    const message = d.message || '收到一条告警'
     window.dispatchEvent(
       new CustomEvent('mes:toast', {
         detail: { level, title, message }
@@ -762,8 +762,8 @@ function onSseEvent(event) {
       new CustomEvent('mes:toast', {
         detail: {
           level: 'warning',
-          title: 'Equipment Status Change',
-          message: `${d.equipment || 'Equipment'} is now ${d.status || 'unknown'}`
+          title: '设备状态变更',
+          message: `${d.equipment || '设备'} 状态变更为 ${d.status || '未知'}`
         }
       })
     )
@@ -773,8 +773,8 @@ function onSseEvent(event) {
       new CustomEvent('mes:toast', {
         detail: {
           level: 'success',
-          title: 'Analysis Complete',
-          message: d.summary || 'AI analysis has finished'
+          title: '分析完成',
+          message: d.summary || 'AI 分析已完成'
         }
       })
     )
@@ -785,8 +785,8 @@ function onSseEvent(event) {
       new CustomEvent('mes:toast', {
         detail: {
           level: 'warning',
-          title: 'Anomaly Detected',
-          message: `${d.station_id || d.station || 'Unknown'}: ${d.description || d.message || 'Abnormal behavior detected'}`
+          title: '检测到异常',
+          message: `${d.station_id || d.station || '未知'}: ${d.description || d.message || '检测到异常行为'}`
         }
       })
     )

@@ -658,16 +658,32 @@ function closeModal() {
 }
 
 async function saveOrder() {
+  // 自动生成订单编号（如果未填写）
+  if (!form.value.code) {
+    const now = new Date()
+    const dateStr = now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0')
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
+    form.value.code = `ORD-${dateStr}-${rand}`
+  }
   if (!form.value.product || !form.value.customer || !form.value.qty || !form.value.dueDate) {
     showToast('请填写必填字段', 'warning')
     return
   }
   try {
+    // 格式化提交数据，确保字段类型正确
+    const submitData = {
+      ...form.value,
+      qty: Number(form.value.qty) || 1,
+      priority: form.value.priority || 'normal',
+      status: form.value.status || 'pending',
+    }
     if (modalMode.value === 'create') {
-      await apiCreateOrder(form.value)
+      await apiCreateOrder(submitData)
       showToast('订单创建成功', 'success')
     } else {
-      await apiUpdateOrder(form.value.id, form.value)
+      await apiUpdateOrder(form.value.id, submitData)
       showToast('订单更新成功', 'success')
     }
     closeModal()

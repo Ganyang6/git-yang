@@ -301,6 +301,8 @@ class TestGetBoxplotStats:
         box = night_data[idx]
         assert box is not None
         assert len(box) == 5  # [min, Q1, median, Q3, max]
+        # Values must be in seconds, not ms
+        assert box == [2.0, 2.23, 2.45, 2.67, 2.9]
 
     def test_multiple_stations(self, db_session):
         for i in range(5):

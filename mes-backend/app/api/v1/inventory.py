@@ -124,7 +124,7 @@ def create_inventory_item(
         spec=req.spec,
         category=req.category,
         unit=req.unit,
-        safe_stock=req.safeStock,
+        safe_stock=req.safe_stock,
         location=req.location,
         warehouse=req.warehouse,
         price=req.price,

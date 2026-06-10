@@ -504,13 +504,14 @@ function openModal(customer = null) {
     }
   } else {
     editingId.value = null
+    // 保留 form 默认值（type/level 不可为空，后端期望有效字符串）
     form.value = {
       name: '',
       contact: '',
       phone: '',
       city: '',
-      type: '',
-      level: '',
+      type: '制造业',
+      level: 'A级',
       remark: ''
     }
   }
@@ -548,7 +549,7 @@ async function saveCustomer() {
 
 // C6: Delete customer with confirmation
 async function handleDeleteCustomer(id) {
-  if (!await openConfirm({ title: 'Delete Customer', message: 'Are you sure you want to delete this customer? Associated order data will not be deleted.' })) return
+  if (!await openConfirm({ title: '删除客户', message: '确定要删除该客户吗？相关的订单数据不会被删除。' })) return
   try {
     await apiDeleteCustomer(id)
     showToast('客户已删除', 'success')

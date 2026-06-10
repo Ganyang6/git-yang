@@ -119,7 +119,7 @@ describe('WorktimeAnalysis calibrateHandler', () => {
     // Simulate the fixed handler: parse result, then call calibrateWorktime
     const { calibrateWorktime } = await import('../../src/api/index.js')
 
-    // Simulate fixed calibrateHandler
+    // Simulate fixed calibrateHandler (P1-3: multiply by 1000 for ms)
     const op = { id: 456, operation: '焊接', standard: 40 }
     const { value } = await mockPrompt(
       `请输入工序"${op.operation}"的新标准工时（秒）：`,
@@ -129,10 +129,11 @@ describe('WorktimeAnalysis calibrateHandler', () => {
     if (value === null || value === undefined) return
     const newValue = parseFloat(value)
     if (!isNaN(newValue) && newValue > 0) {
-      await calibrateWorktime(op.id, newValue)
+      // P1-3: user input is in seconds, API parameter standard_ms expects milliseconds
+      await calibrateWorktime(op.id, newValue * 1000)
     }
 
-    // Verify the API was called with the correct parsed value
-    expect(calibrateWorktime).toHaveBeenCalledWith(456, 42.5)
+    // Verify the API was called with seconds converted to ms
+    expect(calibrateWorktime).toHaveBeenCalledWith(456, 42500)
   })
 })

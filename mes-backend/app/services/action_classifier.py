@@ -201,6 +201,9 @@ class WindowStats:
     avg_grip_strength: float = 0.0
     avg_pinch_distance: float = 1.0
     avg_finger_spread: float = 0.0
+    std_grip_strength: float = 0.0
+    std_pinch_distance: float = 0.0
+    std_finger_spread: float = 0.0
     has_hand_data: bool = False
 
 
@@ -228,13 +231,19 @@ def compute_window_stats(features_list: List[FrameFeatures]) -> WindowStats:
     stats.avg_visible_fraction = np.mean([f.visible_fraction for f in features_list])
     stats.standing_ratio = np.mean([1.0 if f.is_standing else 0.0 for f in features_list])
 
-    # Aggregate hand-derived features
-    hand_grips = [f.grip_strength for f in features_list if f.grip_strength > 0 or f.pinch_distance < 1.0 or f.finger_spread > 0.0]
-    if hand_grips:
+    # Aggregate hand-derived features (only from frames with actual hand data)
+    hand_frames = [f for f in features_list if f.grip_strength > 0 or f.pinch_distance < 1.0 or f.finger_spread > 0.0]
+    if hand_frames:
         stats.has_hand_data = True
-        stats.avg_grip_strength = np.mean([f.grip_strength for f in features_list])
-        stats.avg_pinch_distance = np.mean([f.pinch_distance for f in features_list])
-        stats.avg_finger_spread = np.mean([f.finger_spread for f in features_list])
+        grips = [f.grip_strength for f in hand_frames]
+        pinches = [f.pinch_distance for f in hand_frames]
+        spreads = [f.finger_spread for f in hand_frames]
+        stats.avg_grip_strength = np.mean(grips)
+        stats.avg_pinch_distance = np.mean(pinches)
+        stats.avg_finger_spread = np.mean(spreads)
+        stats.std_grip_strength = float(np.std(grips))
+        stats.std_pinch_distance = float(np.std(pinches))
+        stats.std_finger_spread = float(np.std(spreads))
 
     return stats
 
@@ -242,6 +251,10 @@ def compute_window_stats(features_list: List[FrameFeatures]) -> WindowStats:
 def classify_action(stats: WindowStats) -> Tuple[ActionLabel, float, str]:
     """
     Rule-based action classification from window statistics.
+
+    Classification logic:
+      Hand features provide confidence boosts for select body rules
+      (GRASP, RELEASE) but never determine the label independently.
 
     Returns:
         (action_label, confidence, dominant_region)

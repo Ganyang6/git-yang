@@ -336,7 +336,21 @@ def station_timeline(
     # Get equipment list as stations
     stations = session.query(Equipment).order_by(Equipment.id).all()
     if not stations:
-        return ApiResponse(data=[], timestamp=time.time())
+        # Fallback: infer stations from ProcessSegment.station_id if Equipment table is empty
+        inferred_station_ids = [
+            row[0] for row in session.query(ProcessSegment.station_id).distinct().all()
+        ]
+        if not inferred_station_ids:
+            return ApiResponse(data=[], timestamp=time.time())
+        # Build pseudo-stations from inferred station_ids
+        pseudo_stations = []
+        for idx, sid in enumerate(inferred_station_ids):
+            pseudo_stations.append(
+                type("PseudoEquipment", (), {
+                    "id": idx + 1, "name": sid, "oee": 0.0
+                })()
+            )
+        stations = pseudo_stations
 
     # Aggregate segment stats per station via SQL GROUP BY (avoids loading 50K objects)
     station_action_stats = session.query(
