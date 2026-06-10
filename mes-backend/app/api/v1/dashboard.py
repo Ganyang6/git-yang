@@ -289,6 +289,30 @@ def ai_context(
     # ── Line balance rate (single aggregated query inside compute) ──
     lbr, bottleneck, station_data = compute_line_balance_rate(session)
 
+    # ── Standard time achievement (MOD-based) ──
+    mod_map = {
+        "reach": 3.0, "grasp": 1.0, "move": 4.0, "assemble": 5.0,
+        "release": 1.0, "inspect": 3.0, "wait": 0.0, "idle": 0.0,
+    }
+    mod_unit = 0.129  # seconds per MOD
+
+    action_durations = session.query(
+        ProcessSegment.action,
+        func.sum(ProcessSegment.duration_ms).label("dur"),
+    ).filter(
+        ProcessSegment.start_time >= range_start,
+    )
+    if line:
+        action_durations = action_durations.filter(ProcessSegment.line == line)
+    action_durations = action_durations.group_by(ProcessSegment.action).all()
+
+    total_mod_ms = 0.0
+    for action, dur in action_durations:
+        mod_val = mod_map.get(action, 0.0)
+        total_mod_ms += float(dur) * mod_val * mod_unit * 1000
+
+    std_achievement = min(total_mod_ms / total_ms, 1.0) if total_ms > 0 else 0.0
+
     # Takt time = available time / demand
     # Use shift hours (8h) and completed orders in the current shift
     completed_qty = session.query(
@@ -308,11 +332,9 @@ def ai_context(
         "balanceRate": round(lbr, 4),
         "bottleneckStation": bottleneck,
         "taktTime": round(takt_time, 1),
-        "lostCapacity": round(lost_capacity / 1000, 1),
+        "lostCapacity": round(lost_capacity, 1),
         "utilization": round(hur, 4),
-        "stdtimeAchievement": round(
-            min(1.0, hur) if total_ms > 0 else 0.0, 4
-        ),
+        "stdtimeAchievement": round(std_achievement, 4),
         "wasteRatio": round(waste_ratio, 4),
     }
 

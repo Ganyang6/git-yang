@@ -34,20 +34,6 @@
       <div v-for="kpi in kpiList" :key="kpi.label" class="report-kpi card">
         <div class="rk-label">{{ kpi.label }}</div>
         <div class="rk-value" :style="`color:${kpi.color}`">{{ kpi.value }}</div>
-        <div class="rk-compare" :class="kpi.up ? 'up' : 'down'">
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="3"
-          >
-            <polyline v-if="kpi.up" points="18 15 12 9 6 15" />
-            <polyline v-else points="6 9 12 15 18 9" />
-          </svg>
-          {{ kpi.change }}
-        </div>
       </div>
     </div>
 
@@ -233,47 +219,31 @@ async function loadData() {
           label: '总产量(件)',
           value: d.totalOutput != null ? d.totalOutput.toLocaleString() : '--',
           color: '#1a6ef5',
-          up: (d.changes?.totalOutput ?? 0) >= 0,
-          change: formatChange(d.changes?.totalOutput)
         },
         {
           label: '订单完成率',
           value: d.completionRate != null ? `${d.completionRate}%` : '--',
           color: '#10b981',
-          up: (d.changes?.completionRate ?? 0) >= 0,
-          change: formatChange(d.changes?.completionRate)
         },
         {
           label: '综合良品率',
           value: d.yieldRate != null ? `${d.yieldRate}%` : '--',
           color: '#6366f1',
-          up: (d.changes?.yieldRate ?? 0) >= 0,
-          change: formatChange(d.changes?.yieldRate)
         },
         {
           label: '按时交货率',
           value: d.onTimeRate != null ? `${d.onTimeRate}%` : '--',
           color: '#f59e0b',
-          up: (d.changes?.onTimeRate ?? 0) >= 0,
-          change: formatChange(d.changes?.onTimeRate)
         },
-        {
-          label: '设备综合OEE',
-          value: d.oee != null ? `${d.oee}%` : '--',
-          color: '#ec4899',
-          up: (d.changes?.oee ?? 0) >= 0,
-          change: formatChange(d.changes?.oee)
-        }
       ]
     } else {
       kpiList.value = kpiList.value.length
         ? kpiList.value
         : [
-            { label: '总产量(件)', value: '--', color: '#1a6ef5', up: true, change: '' },
-            { label: '订单完成率', value: '--', color: '#10b981', up: true, change: '' },
-            { label: '综合良品率', value: '--', color: '#6366f1', up: false, change: '' },
-            { label: '按时交货率', value: '--', color: '#f59e0b', up: true, change: '' },
-            { label: '设备综合OEE', value: '--', color: '#ec4899', up: true, change: '' }
+            { label: '总产量(件)', value: '--', color: '#1a6ef5' },
+            { label: '订单完成率', value: '--', color: '#10b981' },
+            { label: '综合良品率', value: '--', color: '#6366f1' },
+            { label: '按时交货率', value: '--', color: '#f59e0b' }
           ]
     }
 
@@ -338,13 +308,9 @@ async function loadPhase5Data() {
   }
 }
 
-function formatChange(val) {
-  if (val == null || val === undefined) return ''
-  return `${val > 0 ? '+' : ''}${val}% vs 上期`
-}
 
 function renderBarChart(data) {
-  if (!barChartRef.value) return
+  if (!data || !barChartRef.value) return
   try {
     if (!barChartInstance) {
       barChartInstance = echarts.init(barChartRef.value)
@@ -353,6 +319,7 @@ function renderBarChart(data) {
     console.warn('[Reports] bar chart init failed:', err.message)
     return
   }
+  console.log('[Reports] barChart data:', JSON.stringify(data).slice(0, 200))
   barChartInstance.setOption({
     tooltip: { trigger: 'axis' },
     grid: { top: 16, right: 20, bottom: 30, left: 52 },
@@ -388,7 +355,7 @@ function renderBarChart(data) {
 }
 
 function renderPieChart(data) {
-  if (!pieChartRef.value) return
+  if (!data || !pieChartRef.value) return
   try {
     if (!pieChartInstance) {
       pieChartInstance = echarts.init(pieChartRef.value)
@@ -397,6 +364,7 @@ function renderPieChart(data) {
     console.warn('[Reports] pie chart init failed:', err.message)
     return
   }
+  console.log('[Reports] pieChart data:', JSON.stringify(data).slice(0, 200))
   pieChartInstance.setOption({
     tooltip: {
     trigger: 'item',
@@ -432,7 +400,7 @@ function renderPieChart(data) {
 
 // Radar Chart - Multi-station efficiency comparison
 function renderRadarChart(lbData) {
-  if (!radarChartRef.value) return
+  if (!lbData || !radarChartRef.value) return
   try {
     if (!radarChartInstance) {
       radarChartInstance = echarts.init(radarChartRef.value)
@@ -442,9 +410,10 @@ function renderRadarChart(lbData) {
     return
   }
 
-  const stations = lbData.stations || []
+  const stations = (lbData.stations || []).filter(s => s && s.time != null)
+  if (stations.length === 0) return
   const maxTime = Math.max(...stations.map(s => s.time), 1)
-  const avgTime = stations.length ? stations.reduce((s, st) => s + st.time, 0) / stations.length : 1
+  const avgTime = stations.reduce((s, st) => s + st.time, 0) / stations.length
 
   // Build indicator dimensions (only real data, no synthetic metrics)
   const indicators = [
@@ -464,6 +433,7 @@ function renderRadarChart(lbData) {
     }
   })
 
+  console.log('[Reports] radarChart data:', JSON.stringify(lbData).slice(0, 200))
   radarChartInstance.setOption({
     tooltip: {
       trigger: 'item',
@@ -518,6 +488,7 @@ async function renderBoxplotChart(data) {
 
   // data = { stations: string[], shifts: string[], morning: number[][], afternoon: number[][], night: number[][] }
   // Each inner array is [min, Q1, median, Q3, max]
+  if (!data) return
   const stationNames = data.stations || []
 
   // Collect shift data that has actual entries (non-null box values)
@@ -525,13 +496,49 @@ async function renderBoxplotChart(data) {
   const series = []
   const legendData = []
 
+  // Determine which stations have valid data in at least one shift
+  const validStationIdxs = []
+  for (let i = 0; i < stationNames.length; i++) {
+    for (const shift of (data.shifts || [])) {
+      const arr = data[shift]
+      if (arr && arr[i] != null) {
+        validStationIdxs.push(i)
+        break
+      }
+    }
+  }
+  const filteredStations = validStationIdxs.map(i => stationNames[i])
+
+  // ── Pass 1: Build the intersection mask of stations non-null in ALL shifts ──
+  let commonValidMask = null // boolean[] aligned with validStationIdxs order
   for (const shift of (data.shifts || [])) {
     const shiftArr = data[shift]
     if (!shiftArr || shiftArr.length === 0) continue
-    // Replace null entries with undefined to prevent ECharts from trying
-    // to access .value on null (TypeError crash)
-    const cleanData = shiftArr.map(box => box ?? undefined)
-    if (cleanData.every(b => b === undefined)) continue
+    const thisShiftMask = validStationIdxs.map(i => shiftArr[i] != null)
+    if (commonValidMask === null) {
+      commonValidMask = thisShiftMask
+    } else {
+      commonValidMask = commonValidMask.map((v, j) => v && thisShiftMask[j])
+    }
+  }
+  const finalValidMask = commonValidMask || []
+
+  // ── Pass 2: Build series data using only intersection-valid stations ──
+  // Convert mask to indices (relative to validStationIdxs order) that survived
+  const keepIdxs = finalValidMask
+    .map((ok, j) => ok ? j : -1)
+    .filter(j => j >= 0)
+  const finalFilteredStations = keepIdxs.map(j => filteredStations[j])
+
+  for (const shift of (data.shifts || [])) {
+    const shiftArr = data[shift]
+    if (!shiftArr || shiftArr.length === 0) continue
+
+    // Map validStationIdxs to raw data, then keep only intersection-valid entries
+    const rawData = validStationIdxs.map(i => shiftArr[i])
+    const cleanData = keepIdxs.map(j => rawData[j]).filter(b => b != null)
+
+    if (cleanData.length === 0) continue
     series.push({
       name: shiftLabels[shift] || shift,
       type: 'boxplot',
@@ -544,18 +551,18 @@ async function renderBoxplotChart(data) {
     legendData.push(shiftLabels[shift] || shift)
   }
 
-  // Only render if we have actual data
-  if (series.length === 0) {
-    return
-  }
+  // No series to render
+  if (series.length === 0) return
 
+  console.log(
+    '[Reports] boxplotChart series (no null entries):',
+    series.map(s => ({ name: s.name, data: s.data })).slice(0, 3)
+  )
   boxplotChartInstance.setOption({
     tooltip: {
       trigger: 'item',
       formatter: (params) => {
         if (params.componentType === 'series' && params.data) {
-          // Guard against null/undefined data (ECharts may call formatter
-          // even for entries we set as undefined)
           if (!Array.isArray(params.data)) return ''
           const [min, q1, median, q3, max] = params.data
           if (min == null || q1 == null || median == null || q3 == null || max == null) return ''
@@ -579,12 +586,12 @@ async function renderBoxplotChart(data) {
     grid: { top: 16, right: 20, bottom: 40, left: 52 },
     xAxis: {
       type: 'category',
-      data: stationNames,
+      data: finalFilteredStations,
       axisLabel: { fontSize: 11, color: '#6b7280' }
     },
     yAxis: {
       type: 'value',
-      name: '工时(ms)',
+      name: '工时(s)',
       nameTextStyle: { fontSize: 10, color: '#9ca3af' },
       axisLabel: { fontSize: 10, color: '#9ca3af' },
       splitLine: { lineStyle: { color: '#f3f4f6' } }
@@ -608,9 +615,13 @@ async function renderHeatmapChart(apiData) {
   }
 
   // apiData = { stations: string[], hours: string[], data: [[hourIdx, stationIdx, wastePct], ...] }
+  if (!apiData) return
   const stations = apiData.stations || []
   const hours = apiData.hours || []
-  const heatmapData = apiData.data || []
+  // Guard: filter out entries with null/undefined wastePct to prevent NaN in visualMap
+  const heatmapData = (apiData.data || []).filter(
+    entry => entry && entry.length >= 3 && entry[2] != null
+  )
 
   // Only render if we have actual data
   if (stations.length === 0 || heatmapData.length === 0) {
@@ -621,6 +632,7 @@ async function renderHeatmapChart(apiData) {
   // Determine visual map max from actual data
   const maxVal = Math.max(...heatmapData.map(d => d[2]), 1)
 
+  console.log('[Reports] heatmapChart data:', JSON.stringify(apiData).slice(0, 200))
   heatmapChartInstance.setOption({
     tooltip: {
       position: 'top',
@@ -723,19 +735,6 @@ onUnmounted(() => {
   font-size: var(--font-size-2xl);
   font-weight: 700;
   margin-bottom: 6px;
-}
-.rk-compare {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-}
-.rk-compare.up {
-  color: var(--success);
-}
-.rk-compare.down {
-  color: var(--danger);
 }
 
 .charts-grid {

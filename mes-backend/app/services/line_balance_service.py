@@ -48,7 +48,7 @@ def get_station_metrics(
         if r.seg_count > 0:
             station_data.append({
                 "name": r.station_id,
-                "time": float(r.avg_duration),
+                "time": round(float(r.avg_duration) / 1000.0, 3),
                 "count": r.seg_count,
             })
     return station_data
@@ -180,7 +180,7 @@ def generate_ecrs_suggestions(
         "target": bottleneck["name"],
         "description": (
             f"Simplify tool changes and fixture setup at station {bottleneck['name']} "
-            f"to reduce its current {bottleneck['time']/1000:.1f}s cycle time."
+            f"to reduce its current {bottleneck['time']:.1f}s cycle time."
         ),
     })
 

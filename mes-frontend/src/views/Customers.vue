@@ -63,11 +63,11 @@
         </div>
         <select v-model="filterType" class="select" style="width: 120px">
           <option value="">全部类型</option>
-          <option v-for="t in customerTypes" :key="t" :value="t">{{ t }}</option>
+          <option v-for="t in customerTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
         </select>
         <select v-model="filterLevel" class="select" style="width: 120px">
           <option value="">全部级别</option>
-          <option v-for="l in customerLevels" :key="l" :value="l">{{ l }}</option>
+          <option v-for="l in customerLevels" :key="l.value" :value="l.value">{{ l.label }}</option>
         </select>
         <div class="view-toggle">
           <button
@@ -329,13 +329,13 @@
             <div class="form-group">
               <label class="form-label">客户类型</label>
               <select v-model="form.type" class="select">
-                <option v-for="t in customerTypes" :key="t" :value="t">{{ t }}</option>
+                <option v-for="t in customerTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
               </select>
             </div>
             <div class="form-group">
               <label class="form-label">客户级别</label>
               <select v-model="form.level" class="select">
-                <option v-for="l in customerLevels" :key="l" :value="l">{{ l }}</option>
+                <option v-for="l in customerLevels" :key="l.value" :value="l.value">{{ l.label }}</option>
               </select>
             </div>
           </div>
@@ -395,8 +395,8 @@ const form = ref({
   contact: '',
   phone: '',
   city: '',
-  type: '制造业',
-  level: 'A级',
+  type: 'normal',
+  level: 'A',
   remark: ''
 })
 
@@ -510,8 +510,8 @@ function openModal(customer = null) {
       contact: '',
       phone: '',
       city: '',
-      type: '制造业',
-      level: 'A级',
+      type: 'normal',
+      level: 'A',
       remark: ''
     }
   }
@@ -563,8 +563,12 @@ async function handleDeleteCustomer(id) {
 onMounted(() => {
   loadCustomers()
   loadStats()
-  fetchCustomerTypes().then(data => { customerTypes.value = data || [] }).catch(() => {})
-  fetchCustomerLevels().then(data => { customerLevels.value = data || [] }).catch(() => {})
+  fetchCustomerTypes().then(data => {
+    customerTypes.value = (data || []).map(v => ({ value: v.code, label: v.name }))
+  }).catch(() => {})
+  fetchCustomerLevels().then(data => {
+    customerLevels.value = (data || []).map(v => ({ value: v.code, label: v.name }))
+  }).catch(() => {})
 })
 
 onBeforeUnmount(() => {

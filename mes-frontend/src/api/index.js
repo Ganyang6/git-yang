@@ -62,6 +62,10 @@ async function request(path, options = {}) {
     } catch {
       // response 不是 JSON，使用默认消息
     }
+    if (res.status === 422) {
+      const bodyText = await res.clone().text()
+      console.error('422 response body:', bodyText)
+    }
     throw new Error(userMsg)
   }
   const json = await res.json()

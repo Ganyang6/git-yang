@@ -402,7 +402,7 @@
             <div class="form-group">
               <label class="form-label">状态</label>
               <select v-model="form.status" class="select">
-                <option v-for="s in orderStatuses" :key="s" :value="s">{{ STATUS_LABELS[s] || s }}</option>
+                <option v-for="s in orderStatuses" :key="s.value" :value="s.value">{{ s.label }}</option>
               </select>
             </div>
           </div>
@@ -671,14 +671,14 @@ async function saveOrder() {
     showToast('请填写必填字段', 'warning')
     return
   }
+  // 格式化提交数据，确保字段类型正确
+  const submitData = {
+    ...form.value,
+    qty: Number(form.value.qty) || 1,
+    priority: form.value.priority || 'normal',
+    status: form.value.status || 'pending',
+  }
   try {
-    // 格式化提交数据，确保字段类型正确
-    const submitData = {
-      ...form.value,
-      qty: Number(form.value.qty) || 1,
-      priority: form.value.priority || 'normal',
-      status: form.value.status || 'pending',
-    }
     if (modalMode.value === 'create') {
       await apiCreateOrder(submitData)
       showToast('订单创建成功', 'success')
@@ -689,6 +689,8 @@ async function saveOrder() {
     closeModal()
     await loadOrders()
   } catch (err) {
+    console.error('Order save failed, sent data:', JSON.stringify(submitData, null, 2))
+    console.error('Error message:', err.message)
     showToast(err.message || '操作失败', 'warning')
   }
 }
@@ -711,9 +713,11 @@ function toggleDropdown(id) {
 onMounted(() => {
   loadOrders()
   loadStatusCounts()
-  fetchOrderStatuses().then(data => { orderStatuses.value = data || [] }).catch(() => {})
+  fetchOrderStatuses().then(data => {
+    orderStatuses.value = (data || []).map(v => ({ value: v.code, label: STATUS_LABELS[v.code] || v.name }))
+  }).catch(() => {})
   fetchOrderPriorities().then(data => {
-    priorityOptions.value = (data || []).map(v => ({ value: v, label: PRIORITY_LABELS[v] || v }))
+    priorityOptions.value = (data || []).map(v => ({ value: v.code, label: PRIORITY_LABELS[v.code] || v.name }))
   }).catch(() => {})
 })
 

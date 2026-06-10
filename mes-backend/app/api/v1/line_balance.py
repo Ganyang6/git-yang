@@ -106,7 +106,7 @@ def line_balance_full(
 
     # Lost value estimation (using average MOD rate)
     mod_rate = 0.129  # seconds per MOD
-    lost_value = lost_capacity / 1000 * mod_rate * 60  # rough CNY estimate per minute
+    lost_value = lost_capacity * mod_rate * 60  # rough CNY estimate per minute
 
     # ECRS suggestions
     ecrs_items = generate_ecrs_suggestions(stations, avg_d)
@@ -128,9 +128,9 @@ def line_balance_full(
                 "level": "warning",
             })
 
-    if si >= 10000:
+    if si >= 10:
         causal_rules.append({
-            "condition": f"SI >= 10000ms (actual: {si:.0f}ms)",
+            "condition": f"SI >= 10s (actual: {si:.0f}s)",
             "conclusion": "High workload variance across stations",
             "level": "warning",
         })
@@ -142,7 +142,7 @@ def line_balance_full(
             "taktTime": round(takt_time, 1),
             "dailyDemand": completed_qty if completed_qty > 0 else 0,
             "bottleneck": bottleneck,
-            "lostCapacity": round(lost_capacity / 1000, 1),
+            "lostCapacity": round(lost_capacity, 1),
             "lostValue": round(lost_value, 1),
             "stations": stations,
             "causalRules": causal_rules,

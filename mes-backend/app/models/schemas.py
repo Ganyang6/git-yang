@@ -282,7 +282,7 @@ class EquipmentUpdate(BaseModel):
     fault_count: Optional[int] = Field(default=None, ge=0, alias="faultCount")
     mtbf_hours: Optional[float] = Field(default=None, ge=0.0, alias="mtbf")
     today_util_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0, alias="todayUtil")
-    next_maintenance: Optional[str] = None
+    next_maintenance: Optional[str] = Field(default=None, alias="nextMaint")
 
 
 # -- Dashboard schemas (Phase 3) -----------------------------------------------

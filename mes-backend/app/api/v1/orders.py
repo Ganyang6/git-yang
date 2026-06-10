@@ -233,6 +233,9 @@ def update_order(
 
     for key, value in update_data.items():
         orm_key = field_map.get(key, key)
+        # Skip relationship fields handled separately below
+        if orm_key == "customer":
+            continue
         if hasattr(order, orm_key):
             setattr(order, orm_key, value)
 
