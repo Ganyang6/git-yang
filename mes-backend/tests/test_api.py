@@ -96,7 +96,7 @@ class TestWorktimeEndpointsEmpty:
         resp = client.get("/api/v1/worktime/summary")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["total_ops"] == 0
+        assert data["totalOps"] == 0
 
     def test_operations_empty(self, client):
         resp = client.get("/api/v1/worktime/operations")
@@ -108,7 +108,7 @@ class TestWorktimeEndpointsEmpty:
         resp = client.get("/api/v1/worktime/recent")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["total"] == 0
+        assert len(data) == 0
 
     def test_trend_empty(self, client):
         resp = client.get("/api/v1/worktime/trend?days=3")

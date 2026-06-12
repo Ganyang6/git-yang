@@ -12,7 +12,7 @@ import os
 # Set env BEFORE any app imports
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-pytest-at-least-32b!")
 os.environ.setdefault("MES_TEST_MODE", "1")
-os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "changeme")
+os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "12345678")
 
 import tempfile
 
@@ -60,7 +60,7 @@ def auth_headers(client):
     """Get admin JWT token."""
     resp = client.post("/api/auth/login", json={
         "username": "admin",
-        "password": "changeme",
+        "password": "12345678",
     })
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     token = resp.json()["data"]["access_token"]
@@ -208,3 +208,29 @@ class TestWorktimeApiUnitConversion:
         data = resp.json()["data"]
         assert data["actual"] == 1.31, f"actual={data['actual']} should be 1.31s (1313ms)"
         assert data["standard"] == 2.0, f"standard={data['standard']} should be 2.0s (2000ms)"
+
+    def test_therblig_detail_has_standard_seconds(self, client, auth_headers, seeded_db):
+        """每个动素行必须有 standardSeconds 字段，值 = mod * 0.129，四舍五入到 2 位小数。"""
+        # 1. 获取操作列表
+        resp = client.get(
+            "/api/v1/worktime/operations?station=all&shift=night",
+            headers=auth_headers,
+        )
+        ops = resp.json()["data"]
+        assert len(ops) > 0, "Should have seeded records"
+        op_id = ops[0]["id"]
+
+        # 2. 获取动素明细
+        resp = client.get(f"/api/v1/worktime/therblig/{op_id}", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()["data"]["rows"]
+        assert len(rows) > 0, "Should have therblig rows"
+
+        # 3. 验证每行都有 standardSeconds
+        for row in rows:
+            assert "standardSeconds" in row, f"Row {row} missing standardSeconds"
+            expected = round(row["mod"] * 0.129, 2)
+            assert abs(row["standardSeconds"] - expected) < 0.001, (
+                f"standardSeconds={row['standardSeconds']} != expected={expected} "
+                f"(mod={row['mod']} * 0.129)"
+            )

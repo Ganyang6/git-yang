@@ -1,0 +1,59 @@
+# Seed data configuration
+# Generated: 2026-06-11
+stations:
+  - id: WS-01
+    label: 焊接工位1
+    duration_multiplier: 2.0
+  - id: WS-02
+    label: 焊接工位2
+    duration_multiplier: 1.0
+  - id: AS-01
+    label: 组装工位1
+    duration_multiplier: 0.8
+  - id: AS-02
+    label: 组装工位2
+    duration_multiplier: 1.0
+
+actions:
+  - name: reach
+    weight: 25          # 出现频率权重
+    duration_ms: [300, 1800]  # [min, max] 毫秒
+    mod_value: 3.0
+  - name: grasp
+    weight: 20
+    duration_ms: [200, 1200]
+    mod_value: 1.0
+  - name: move
+    weight: 20
+    duration_ms: [500, 2500]
+    mod_value: 4.0
+  - name: assemble
+    weight: 15
+    duration_ms: [1000, 5000]
+    mod_value: 5.0
+  - name: hold
+    weight: 10
+    duration_ms: [500, 3000]
+    mod_value: 0.0
+  - name: inspect
+    weight: 5
+    duration_ms: [800, 3000]
+    mod_value: 3.0
+  - name: wait
+    weight: 12
+    duration_ms: [1000, 8000]
+    mod_value: 0.0
+  - name: idle
+    weight: 3
+    duration_ms: [2000, 10000]
+    mod_value: 0.0
+  - name: release
+    weight: 2
+    duration_ms: [100, 500]
+    mod_value: 1.0
+
+segments:
+  per_station_min: 30     # 每个工位最少段数（多产生一些数据）
+  per_station_max: 50     # 每个工位最多段数
+  start_hour: 8           # 开始时间（当天，本地时间）
+  end_hour: 16            # 结束时间

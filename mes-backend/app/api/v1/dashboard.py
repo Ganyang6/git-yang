@@ -30,7 +30,11 @@ from sqlalchemy.orm import Session
 from app.models.database import (
     ProcessSegment, Equipment, Order, WorktimeRecord,
 )
-from app.models.schemas import ApiResponse
+from app.models.schemas import (
+    ApiResponse, DashboardKpi, AiContext,
+    StationTimeline, BottleneckDiagnosis,
+    validate_response_data,
+)
 from app.services.line_balance_service import compute_line_balance_rate
 from app.api.deps import get_db_session, require_read_all
 
@@ -182,13 +186,17 @@ def dashboard_kpi(
     hur = effective_ms / t_total if total_ms > 0 else 0.0
 
     if total_ms == 0:
-        data = {
+        data = validate_response_data(DashboardKpi, {
             "utilization": 0.0,
+            "utilization_hasData": False,
             "stdtimeAchievement": 0.0,
+            "stdtimeAchievement_hasData": False,
             "balanceRate": 0.0,
+            "balanceRate_hasData": False,
             "waitLossMinutes": 0.0,
-            "trends": [],
-        }
+            "waitLossMinutes_hasData": False,
+            "trends": {"utilization": 0, "stdtimeAchievement": 0, "balanceRate": 0, "waitLossMinutes": 0},
+        })
         _set_cache(cache_key, data)
         return ApiResponse(data=data, timestamp=time.time())
 
@@ -197,40 +205,47 @@ def dashboard_kpi(
     mod_map = {
         "reach": 3.0, "grasp": 1.0, "move": 4.0, "assemble": 5.0,
         "release": 1.0, "inspect": 3.0, "wait": 0.0, "idle": 0.0,
+        "hold": 0.0,
     }
     mod_unit = 0.129  # seconds per MOD
 
-    # Get total duration per action via SQL GROUP BY (much faster than loading 50K rows)
-    action_durations_query = session.query(
+    # Count segments per action via SQL GROUP BY (standard time = segment count × MOD value)
+    action_counts_query = session.query(
         ProcessSegment.action,
-        func.sum(ProcessSegment.duration_ms).label("dur"),
+        func.count(ProcessSegment.id).label("cnt"),
     ).filter(
         ProcessSegment.start_time >= range_start,
     )
     if line:
-        action_durations_query = action_durations_query.filter(ProcessSegment.line == line)
-    action_durations = action_durations_query.group_by(ProcessSegment.action).all()
+        action_counts_query = action_counts_query.filter(ProcessSegment.line == line)
+    action_counts = action_counts_query.group_by(ProcessSegment.action).all()
 
     total_mod_ms = 0.0
-    for action, dur in action_durations:
+    for action, cnt in action_counts:
         mod_val = mod_map.get(action, 0.0)
-        total_mod_ms += float(dur) * mod_val * mod_unit * 1000
+        # 标准时间(ms) = 段数 × MOD值 × 0.129秒/MOD × 1000ms/秒
+        total_mod_ms += cnt * mod_val * mod_unit * 1000
 
     std_achievement = min(total_mod_ms / t_total, 1.0) if t_total > 0 else 0.0
 
-    # Line balance rate
-    lbr, bottleneck, _ = compute_line_balance_rate(session)
+    # Line balance rate — use same time window and line as KPI query
+    line_filter = line or None
+    lbr, bottleneck, _ = compute_line_balance_rate(session, range_start=range_start, line=line_filter)
 
     # Wait loss in minutes
     wait_loss_min = wait_ms / 60000.0
 
-    data = {
+    data = validate_response_data(DashboardKpi, {
         "utilization": round(hur, 4),
+        "utilization_hasData": True,
         "stdtimeAchievement": round(std_achievement, 4),
-        "balanceRate": round(lbr, 4),
+        "stdtimeAchievement_hasData": True,
+        "balanceRate": round(lbr, 4) if lbr is not None else 0.0,
+        "balanceRate_hasData": True,
         "waitLossMinutes": round(wait_loss_min, 1),
-        "trends": [],
-    }
+        "waitLossMinutes_hasData": True,
+        "trends": {"utilization": 0, "stdtimeAchievement": 0, "balanceRate": 0, "waitLossMinutes": 0},
+    })
 
     _set_cache(cache_key, data)
 
@@ -286,57 +301,67 @@ def ai_context(
     hur = effective_ms / total_ms if total_ms > 0 else 0.0
     waste_ratio = (wait_ms + idle_ms) / total_ms if total_ms > 0 else 0.0
 
-    # ── Line balance rate (single aggregated query inside compute) ──
-    lbr, bottleneck, station_data = compute_line_balance_rate(session)
+    # ── Line balance rate — use same time window and line as KPI query ──
+    line_filter = line or None
+    lbr, bottleneck, station_data = compute_line_balance_rate(session, range_start=range_start, line=line_filter)
 
     # ── Standard time achievement (MOD-based) ──
     mod_map = {
         "reach": 3.0, "grasp": 1.0, "move": 4.0, "assemble": 5.0,
         "release": 1.0, "inspect": 3.0, "wait": 0.0, "idle": 0.0,
+        "hold": 0.0,
     }
     mod_unit = 0.129  # seconds per MOD
 
-    action_durations = session.query(
+    action_counts = session.query(
         ProcessSegment.action,
-        func.sum(ProcessSegment.duration_ms).label("dur"),
+        func.count(ProcessSegment.id).label("cnt"),
     ).filter(
         ProcessSegment.start_time >= range_start,
     )
     if line:
-        action_durations = action_durations.filter(ProcessSegment.line == line)
-    action_durations = action_durations.group_by(ProcessSegment.action).all()
+        action_counts = action_counts.filter(ProcessSegment.line == line)
+    action_counts = action_counts.group_by(ProcessSegment.action).all()
 
     total_mod_ms = 0.0
-    for action, dur in action_durations:
+    for action, cnt in action_counts:
         mod_val = mod_map.get(action, 0.0)
-        total_mod_ms += float(dur) * mod_val * mod_unit * 1000
+        # 标准时间(ms) = 段数 × MOD值 × 0.129秒/MOD × 1000ms/秒
+        total_mod_ms += cnt * mod_val * mod_unit * 1000
 
     std_achievement = min(total_mod_ms / total_ms, 1.0) if total_ms > 0 else 0.0
 
     # Takt time = available time / demand
     # Use shift hours (8h) and completed orders in the current shift
+    # Fall back to planned quantity if no completed orders exist
     completed_qty = session.query(
         func.sum(Order.completed_qty)
     ).filter(
         Order.updated_at >= range_start if hasattr(Order, "updated_at") else True
     ).scalar() or 0
+    planned_qty = session.query(
+        func.sum(Order.quantity)
+    ).filter(
+        Order.updated_at >= range_start if hasattr(Order, "updated_at") else True
+    ).scalar() or 0
+    demand = completed_qty if completed_qty > 0 else planned_qty
     shift_seconds = 28800.0
-    takt_time = shift_seconds / completed_qty if completed_qty > 0 else 0.0
+    takt_time = shift_seconds / demand if demand > 0 else 0.0
 
     max_d = max((s["time"] for s in station_data), default=0)
     n = len(station_data) if station_data else 1
     avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
     lost_capacity = (max_d - avg_d) * n if station_data else 0.0
 
-    data = {
-        "balanceRate": round(lbr, 4),
+    data = validate_response_data(AiContext, {
+        "balanceRate": round(lbr, 4) if lbr is not None else None,
         "bottleneckStation": bottleneck,
         "taktTime": round(takt_time, 1),
         "lostCapacity": round(lost_capacity, 1),
         "utilization": round(hur, 4),
         "stdtimeAchievement": round(std_achievement, 4),
         "wasteRatio": round(waste_ratio, 4),
-    }
+    })
 
     _set_cache("ai_context", data)
 
@@ -515,7 +540,7 @@ def bottleneck_diagnosis(
         if r.seg_count > 0:
             station_data.append({
                 "name": r.station_id,
-                "time": float(r.avg_duration),
+                "time": round(float(r.avg_duration) / 1000.0, 3),  # 转为秒，与 service 层一致
                 "count": r.seg_count,
             })
 
@@ -536,7 +561,7 @@ def bottleneck_diagnosis(
         if bi >= 1.30:
             level = "severe"
             level_label = "Severe"
-            reason = f"BI={bi:.2f}, average time {s['time']/1000:.1f}s vs line average {avg_time/1000:.1f}s (exceeds 130% threshold)"
+            reason = f"BI={bi:.2f}, average time {s['time']:.1f}s vs line average {avg_time:.1f}s (exceeds 130% threshold)"
             suggest = ecrs_suggestions["severe"]
         elif bi >= 1.20:
             level = "bottleneck"

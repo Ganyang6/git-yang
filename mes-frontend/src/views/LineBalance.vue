@@ -8,8 +8,7 @@
       </div>
       <div class="flex gap-2">
         <select v-model="selectedLine" class="select" style="width: 150px" @change="loadData">
-          <option value="line1">产线 A</option>
-          <option value="line2">产线 B</option>
+          <option v-for="l in metaLines" :key="l.value" :value="l.value">{{ l.label }}</option>
         </select>
         <button
           class="btn btn-outline btn-sm"
@@ -468,10 +467,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { fetchLineBalanceFull, downloadBlob } from '../api/index.js'
+import { fetchLineBalanceFull, downloadBlob, fetchMeta } from '../api/index.js'
 import { useToast } from '../composables/useToast.js'
 
-const selectedLine = ref('line1')
+const metaLines = ref([])
+
+const selectedLine = ref('')
 const showSimulate = ref(false)
 const lbChart = ref(null)
 let resizeHandler = null
@@ -506,19 +507,9 @@ const stations = computed(() => lbData.value?.stations || [])
 const causalData = computed(() => lbData.value?.causalRules || [])
 const ecrsList = computed(() => lbData.value?.ecrsItems || [])
 
-const balanceRate = computed(() => {
-  if (!stations.value.length) return 0
-  const total = stations.value.reduce((s, st) => s + st.time, 0)
-  const max = Math.max(...stations.value.map(s => s.time))
-  return Math.round((total / (max * stations.value.length)) * 1000) / 10
-})
-
-const smoothIndex = computed(() => {
-  if (!stations.value.length) return '--'
-  const max = Math.max(...stations.value.map(s => s.time))
-  const si = Math.sqrt(stations.value.reduce((s, st) => s + Math.pow(max - st.time, 2), 0))
-  return si.toFixed(1)
-})
+// 使用 API 返回的 balanceRate/smoothIndex （计算下沉 — 不自行复算）
+const balanceRate = computed(() => lbData.value?.balanceRate != null ? lbData.value.balanceRate * 100 : null)
+const smoothIndex = computed(() => lbData.value?.smoothIndex != null ? lbData.value.smoothIndex : null)
 
 // ─── What-If Simulation ───────────────────────────────────────────────────────
 const simulateStations = ref([])
@@ -807,7 +798,20 @@ function drawLbChart() {
   })
 }
 
+async function loadMeta() {
+  try {
+    const d = await fetchMeta()
+    metaLines.value = (d.lines || []).map(l => ({ value: l.id, label: l.name }))
+    if (metaLines.value.length > 0) {
+      selectedLine.value = metaLines.value[0].value
+    }
+  } catch {
+    errorMsg.value = '元数据加载失败'
+  }
+}
+
 onMounted(() => {
+  loadMeta()
   loadData()
   // P2 #83: debounce resize to avoid redundant redraws with stations watcher
   let resizeTimer = null

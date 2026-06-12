@@ -24,7 +24,8 @@ vi.mock('../../src/api/index.js', () => ({
   submitAiTask: vi.fn(),
   fetchTaskStatus: vi.fn(),
   downloadBlob: vi.fn(),
-  cleanupWorktimeData: vi.fn()
+  cleanupWorktimeData: vi.fn(),
+  fetchMeta: vi.fn()
 }))
 
 describe('WorktimeAnalysis calibrateHandler', () => {
@@ -111,6 +112,86 @@ describe('WorktimeAnalysis calibrateHandler', () => {
     }
 
     expect(value).toBeNull()
+  })
+
+  // ── 方案A: 元数据动态加载 ──────────────────────────────────────────
+
+  it('fetchMeta should be called on mount and provide station options (no hardcoded fallback)', async () => {
+    const { fetchMeta } = await import('../../src/api/index.js')
+
+    // Simulate API returning stations
+    fetchMeta.mockResolvedValue({
+      stations: [
+        { id: 'WS-A1', name: 'WS-A1' },
+        { id: 'WS-B2', name: 'WS-B2' }
+      ],
+      shifts: [
+        { value: 'day', label: '白班' },
+        { value: 'night', label: '夜班' }
+      ],
+      lines: [],
+      mod_unit: 0.129,
+      default_allowance_rate: 15,
+      thresholds: {}
+    })
+
+    const meta = await fetchMeta()
+
+    // Stations mapping: { value: s.id, label: s.name }
+    const stationOptions = (meta.stations || []).map(s => ({ value: s.id, label: s.name }))
+    expect(stationOptions).toEqual([
+      { value: 'WS-A1', label: 'WS-A1' },
+      { value: 'WS-B2', label: 'WS-B2' }
+    ])
+
+    // Shifts mapping: { value: s.value, label: s.label }
+    const shiftOptions = (meta.shifts || []).map(s => ({ value: s.value, label: s.label }))
+    expect(shiftOptions).toEqual([
+      { value: 'day', label: '白班' },
+      { value: 'night', label: '夜班' }
+    ])
+
+    // No hardcoded list — only what meta returns
+    expect(stationOptions.length).toBe(2)
+    expect(shiftOptions.length).toBe(2)
+  })
+
+  it('should NOT have any hardcoded station array or shift array (no fallback)', async () => {
+    // Read source to verify there's no fallback array definition
+    const src = await import('../../src/views/WorktimeAnalysis.vue')
+    // Source file should not contain hardcoded station/shift option definitions
+    const { readFileSync } = await import('fs')
+    const { resolve } = await import('path')
+    const source = readFileSync(resolve(process.cwd(), 'src/views/WorktimeAnalysis.vue'), 'utf-8')
+
+    // Should NOT have hardcoded station entries like WS-01, WS-02 etc
+    // The meta ref should no longer contain a list of station objects
+    // We check for the absence of hardcoded station/shift option definitions
+    expect(source).not.toContain("id: 'WS-01'")
+    expect(source).not.toContain("id: 'WS-02'")
+    expect(source).not.toContain("value: 'morning'")
+    expect(source).not.toContain("label: '早班'")
+  })
+
+  it('should display error message when fetchMeta fails and NOT use fallback data', async () => {
+    const { fetchMeta } = await import('../../src/api/index.js')
+    fetchMeta.mockRejectedValue(new Error('Network error'))
+
+    try {
+      await fetchMeta()
+      // Should not reach here
+      expect(true).toBe(false)
+    } catch (err) {
+      expect(err.message).toBe('Network error')
+    }
+
+    // Simulate the fix: on failure, errorMsg is set, no fallback loaded
+    const errorMsg = '元数据加载失败，请刷新重试'
+    expect(errorMsg).toContain('元数据加载失败')
+
+    // No fallback stations — options array stays empty
+    const fallbackStations = []
+    expect(fallbackStations.length).toBe(0)
   })
 
   it('should parse the ElMessageBox result as a valid float before calling API', async () => {

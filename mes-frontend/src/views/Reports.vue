@@ -107,7 +107,7 @@
               <th>客户名称</th>
               <th>订单数</th>
               <th>产品数量(件)</th>
-              <th>合同金额(万)</th>
+              <th>订单数量</th>
               <th>占比</th>
               <th>趋势</th>
             </tr>
@@ -197,6 +197,7 @@ let boxplotChartInstance = null
 let heatmapChartInstance = null
 
 // Multi-dimension chart data
+const reportKpiData = ref(null)
 const lbChartData = ref(null)
 const shiftData = ref(null)
 const therbligData = ref(null)
@@ -214,25 +215,26 @@ async function loadData() {
     // KPI
     if (kpiData.status === 'fulfilled') {
       const d = kpiData.value
+      reportKpiData.value = d
       kpiList.value = [
         {
           label: '总产量(件)',
-          value: d.totalOutput != null ? d.totalOutput.toLocaleString() : '--',
+          value: d?.totalOutput_hasData ? d.totalOutput.toLocaleString() : '--',
           color: '#1a6ef5',
         },
         {
           label: '订单完成率',
-          value: d.completionRate != null ? `${d.completionRate}%` : '--',
+          value: d?.completionRate_hasData ? `${d.completionRate}%` : '--',
           color: '#10b981',
         },
         {
           label: '综合良品率',
-          value: d.yieldRate != null ? `${d.yieldRate}%` : '--',
+          value: d?.yieldRate_hasData ? `${d.yieldRate}%` : '--',
           color: '#6366f1',
         },
         {
           label: '按时交货率',
-          value: d.onTimeRate != null ? `${d.onTimeRate}%` : '--',
+          value: d?.onTimeRate_hasData ? `${d.onTimeRate}%` : '--',
           color: '#f59e0b',
         },
       ]
@@ -412,7 +414,6 @@ function renderRadarChart(lbData) {
 
   const stations = (lbData.stations || []).filter(s => s && s.time != null)
   if (stations.length === 0) return
-  const maxTime = Math.max(...stations.map(s => s.time), 1)
   const avgTime = stations.reduce((s, st) => s + st.time, 0) / stations.length
 
   // Build indicator dimensions (only real data, no synthetic metrics)
@@ -422,13 +423,18 @@ function renderRadarChart(lbData) {
     { name: '瓶颈指数', max: 100 }
   ]
 
-  // Compute per-station metrics (normalized to 0-100, all from real API data)
+  // Use real backend data: taktTime from line balance, completionRate from KPI, balanceRate from line balance
+  const taktTime = lbData.taktTime ?? avgTime
+  const balanceRate = lbData.balanceRate ?? 0
+  const completionRate = reportKpiData.value?.completionRate ?? 0
+
+  // Compute per-station metrics (normalized to 0-100, using real backend API data)
   const seriesData = stations.slice(0, 5).map((st) => {
-    const utilization = Math.round((st.time / maxTime) * 100)
-    const effectiveRatio = Math.round(Math.min((st.time / avgTime) * 80, 100))
-    const bottleneckIdx = st.isBottleneck ? 95 : Math.round((st.time / maxTime) * 100)
+    const utilization = Math.round(Math.min((st.time / taktTime) * 100, 100))
+    const effectiveRatio = Math.round(Math.min(completionRate, 100))
+    const bottleneckIndex = Math.round((1 - balanceRate) * 100)
     return {
-      value: [utilization, effectiveRatio, bottleneckIdx],
+      value: [utilization, effectiveRatio, bottleneckIndex],
       name: st.name
     }
   })

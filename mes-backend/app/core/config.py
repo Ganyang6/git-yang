@@ -200,6 +200,33 @@ class InfluxDBConfig:
 
 
 @dataclass
+class MetaConfig:
+    """Meta API configuration — shifts, thresholds, mod_unit, etc.
+
+    Controls the values returned by /api/meta endpoint.
+    Loaded from config.yaml -> app.meta.
+    """
+    mod_unit: float = 0.129
+    default_allowance_rate: int = 15
+    shifts: list = None
+    thresholds: dict = None
+
+    def __post_init__(self):
+        if self.shifts is None:
+            self.shifts = [
+                {"value": "morning", "label": "早班"},
+                {"value": "afternoon", "label": "中班"},
+                {"value": "night", "label": "夜班"},
+            ]
+        if self.thresholds is None:
+            self.thresholds = {
+                "efficiency": {"normal_min": 90, "fast_min": 110},
+                "balance_rate": {"excellent_min": 85, "fair_min": 70},
+                "waste_ratio": {"warning_min": 15, "danger_min": 25},
+            }
+
+
+@dataclass
 class OnnxConfig:
     """ONNX Runtime inference settings."""
     # Relative path from the project root to the ONNX model file
@@ -226,6 +253,7 @@ class AppConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     celery: CeleryConfig = field(default_factory=CeleryConfig)
     influxdb: InfluxDBConfig = field(default_factory=InfluxDBConfig)
+    meta: MetaConfig = field(default_factory=MetaConfig)
     onnx: OnnxConfig = field(default_factory=OnnxConfig)
 
 
@@ -418,6 +446,14 @@ def load_app_config(config_path: Optional[str] = None) -> AppConfig:
         worker_max_memory_per_child=celery_cfg.get(
             "worker_max_memory_per_child", config.celery.worker_max_memory_per_child,
         ),
+    )
+
+    meta_cfg = app_cfg.get("meta", {}) or {}
+    config.meta = MetaConfig(
+        mod_unit=meta_cfg.get("mod_unit", config.meta.mod_unit),
+        default_allowance_rate=meta_cfg.get("default_allowance_rate", config.meta.default_allowance_rate),
+        shifts=meta_cfg.get("shifts", config.meta.shifts),
+        thresholds=meta_cfg.get("thresholds", config.meta.thresholds),
     )
 
     onnx_cfg = app_cfg.get("onnx", {})

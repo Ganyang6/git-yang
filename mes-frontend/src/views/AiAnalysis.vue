@@ -81,7 +81,7 @@
                       : 'val-danger'
                 "
               >
-                {{ aiContext.balanceRate }}%
+                {{ (aiContext.balanceRate * 100).toFixed(1) }}%
               </span>
             </div>
             <div class="ctx-item">
@@ -107,15 +107,15 @@
           <template v-else>
             <div class="ctx-item">
               <span class="ctx-key">利用率</span>
-              <span class="ctx-val">{{ aiContext.utilization }}%</span>
+              <span class="ctx-val">{{ (aiContext.utilization * 100).toFixed(1) }}%</span>
             </div>
             <div class="ctx-item">
               <span class="ctx-key">标准工时达成率</span>
-              <span class="ctx-val val-success">{{ aiContext.stdtimeAchievement }}%</span>
+              <span class="ctx-val val-success">{{ (aiContext.stdtimeAchievement * 100).toFixed(1) }}%</span>
             </div>
             <div class="ctx-item">
               <span class="ctx-key">非增值比</span>
-              <span class="ctx-val val-warning">{{ aiContext.wasteRatio }}%</span>
+              <span class="ctx-val val-warning">{{ (aiContext.wasteRatio * 100).toFixed(1) }}%</span>
             </div>
           </template>
         </div>
@@ -430,11 +430,11 @@ function buildPresetText(q) {
   const ctx = aiContext.value
   if (!ctx) return '请等待产线数据加载后再提问。'
   const templates = {
-    bottleneck_cause: `分析 ${ctx.bottleneckStation} 成为瓶颈的根本原因，并给出具体改善措施。当前平衡率 ${ctx.balanceRate}%，节拍时间 ${ctx.taktTime}s。`,
-    ecrs_plan: `根据当前产线数据（平衡率 ${ctx.balanceRate}%，瓶颈工位 ${ctx.bottleneckStation}，产能损失 ${ctx.lostCapacity} 件/天），生成完整的 ECRS 改善方案，按优先级排序。`,
-    std_time_eval: `当前利用率 ${ctx.utilization}%，标准工时达成率 ${ctx.stdtimeAchievement}%，非增值比 ${ctx.wasteRatio}%。请评估标准工时设定的合理性，分析可能的作业方法问题。`,
-    benchmark: `我们当前产线平衡率为 ${ctx.balanceRate}%，利用率 ${ctx.utilization}%。离散制造业的行业标杆水平是多少？我们处于什么位置？`,
-    utilization_improve: `当前利用率 ${ctx.utilization}%，非增值比 ${ctx.wasteRatio}%。请分析主要非增值来源，提供动作改善建议。`,
+    bottleneck_cause: `分析 ${ctx.bottleneckStation} 成为瓶颈的根本原因，并给出具体改善措施。当前平衡率 ${((ctx.balanceRate ?? 0) * 100).toFixed(1)}%，节拍时间 ${ctx.taktTime}s。`,
+    ecrs_plan: `根据当前产线数据（平衡率 ${((ctx.balanceRate ?? 0) * 100).toFixed(1)}%，瓶颈工位 ${ctx.bottleneckStation}，产能损失 ${ctx.lostCapacity} 件/天），生成完整的 ECRS 改善方案，按优先级排序。`,
+    std_time_eval: `当前利用率 ${((ctx.utilization ?? 0) * 100).toFixed(1)}%，标准工时达成率 ${((ctx.stdtimeAchievement ?? 0) * 100).toFixed(1)}%，非增值比 ${((ctx.wasteRatio ?? 0) * 100).toFixed(1)}%。请评估标准工时设定的合理性，分析可能的作业方法问题。`,
+    benchmark: `我们当前产线平衡率为 ${((ctx.balanceRate ?? 0) * 100).toFixed(1)}%，利用率 ${((ctx.utilization ?? 0) * 100).toFixed(1)}%。离散制造业的行业标杆水平是多少？我们处于什么位置？`,
+    utilization_improve: `当前利用率 ${((ctx.utilization ?? 0) * 100).toFixed(1)}%，非增值比 ${((ctx.wasteRatio ?? 0) * 100).toFixed(1)}%。请分析主要非增值来源，提供动作改善建议。`,
     capacity_recover: `瓶颈工位 ${ctx.bottleneckStation} 导致每天产能损失 ${ctx.lostCapacity} 件。请提供最快的改善方案（一周内可实施）。`
   }
   return templates[q.key] || q.label
@@ -455,13 +455,13 @@ const systemPrompt = computed(() => {
   return `${baseRole}
 
 当前实时产线数据（请基于此数据进行分析）：
-- 产线平衡率: ${ctx.balanceRate}% (目标: >90%)
+- 产线平衡率: ${((ctx.balanceRate ?? 0) * 100).toFixed(1)}% (目标: >90%)
 - 瓶颈工位: ${ctx.bottleneckStation}
 - 节拍时间: ${ctx.taktTime}s
 - 日产能损失: ${ctx.lostCapacity} 件
-- 利用率: ${ctx.utilization}%
-- 标准工时达成率: ${ctx.stdtimeAchievement}%
-- 非增值比: ${ctx.wasteRatio}%
+- 利用率: ${((ctx.utilization ?? 0) * 100).toFixed(1)}%
+- 标准工时达成率: ${((ctx.stdtimeAchievement ?? 0) * 100).toFixed(1)}%
+- 非增值比: ${((ctx.wasteRatio ?? 0) * 100).toFixed(1)}%
 
 请使用专业但清晰的语言，提供具体可执行的建议，尽可能给出量化数据。`
 })

@@ -796,6 +796,15 @@ export function streamVideoProgress(taskId, onProgress, options = {}) {
 }
 
 /**
+ * 获取元数据（工位、班次、产线、阈值等）
+ * 解决前端硬编码问题，新增工位后下拉自动更新
+ * @returns {Promise<{ stations: Array, shifts: Array, lines: Array, mod_unit: number, thresholds: object }>}
+ */
+export function fetchMeta() {
+  return request('/api/meta')
+}
+
+/**
  * 获取工位列表（视频分析用）
  * @returns {Promise<Array<{ id: string, name: string }>>}
  */

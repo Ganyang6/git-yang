@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 
 import time as _time
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, ValidationError
 
 
 # -- Enums -------------------------------------------------------------------
@@ -288,79 +288,130 @@ class EquipmentUpdate(BaseModel):
 # -- Dashboard schemas (Phase 3) -----------------------------------------------
 
 class DashboardKpi(BaseModel):
-    utilization: float = 0.0
-    stdtimeAchievement: float = 0.0
-    balanceRate: float = 0.0
-    waitLossMinutes: float = 0.0
-    trends: Optional[dict] = None
+    """Dashboard KPI response data with range constraints."""
+    utilization: float = Field(default=0.0, ge=0.0, le=1.0)
+    utilization_hasData: bool = Field(default=False)
+    stdtimeAchievement: float = Field(default=0.0, ge=0.0, le=1.0)
+    stdtimeAchievement_hasData: bool = Field(default=False)
+    balanceRate: float = Field(default=0.0, ge=0.0, le=1.0)
+    balanceRate_hasData: bool = Field(default=False)
+    waitLossMinutes: float = Field(default=0.0, ge=0.0)
+    waitLossMinutes_hasData: bool = Field(default=False)
+    trends: dict = Field(default_factory=dict)
 
 
 class AiContext(BaseModel):
-    balanceRate: float = 0.0
+    """AI context response data with range constraints."""
+    balanceRate: float | None = Field(default=None, ge=0.0, le=1.0)
     bottleneckStation: str = ""
-    taktTime: float = 0.0
-    lostCapacity: float = 0.0
-    utilization: float = 0.0
-    stdtimeAchievement: float = 0.0
-    wasteRatio: float = 0.0
+    taktTime: float = Field(default=0.0, ge=0.0)
+    lostCapacity: float = Field(default=0.0, ge=0.0)
+    utilization: float = Field(default=0.0, ge=0.0, le=1.0)
+    stdtimeAchievement: float = Field(default=0.0, ge=0.0, le=1.0)
+    wasteRatio: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_none_strings(cls, data):
+        """Coerce None values to empty string for str fields."""
+        if isinstance(data, dict):
+            if data.get("bottleneckStation") is None:
+                data["bottleneckStation"] = ""
+        return data
 
 
 class TimelineSegment(BaseModel):
+    """Station timeline segment with range constraints."""
     type: str
     label: str
-    time: float
-    pct: float
+    time: float = Field(ge=0.0)
+    pct: float = Field(ge=0.0, le=100.0)
 
 
 class StationTimeline(BaseModel):
+    """Station timeline entry with range constraints."""
     id: int
     name: str
-    oee: float = 0.0
+    oee: float = Field(default=0.0, ge=0.0, le=1.0)
     segments: List[TimelineSegment] = Field(default_factory=list)
 
 
 # -- Line balance schemas (Phase 3) --------------------------------------------
 
 class StationInfo(BaseModel):
+    """Station info with range constraints."""
     name: str
-    time: float
+    time: float = Field(ge=0.0)
     isBottleneck: bool = False
 
 
 class LineBalanceSummary(BaseModel):
-    balanceRate: float = 0.0
-    smoothIndex: float = 0.0
+    """Line balance summary with range constraints."""
+    balanceRate: float = Field(default=0.0, ge=0.0, le=1.0)
+    smoothIndex: float = Field(default=0.0, ge=0.0)
     bottleneckStation: str = ""
     stations: List[StationInfo] = Field(default_factory=list)
-    taktTime: float = 0.0
+    taktTime: float = Field(default=0.0, ge=0.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_none_values(cls, data):
+        """Coerce None numeric values to 0.0 and None strings to empty."""
+        if isinstance(data, dict):
+            for key in ("balanceRate", "smoothIndex", "taktTime"):
+                if data.get(key) is None:
+                    data[key] = 0.0
+            for key in ("bottleneckStation",):
+                if data.get(key) is None:
+                    data[key] = ""
+        return data
 
 
 class EcrsItem(BaseModel):
+    """ECRS suggestion item."""
     method: str = ""
     target: str = ""
     description: str = ""
 
 
 class CausalRule(BaseModel):
+    """Causal rule for bottleneck diagnosis."""
     condition: str = ""
     conclusion: str = ""
     level: str = ""
 
 
 class LineBalanceFull(BaseModel):
-    balanceRate: float = 0.0
-    smoothIndex: float = 0.0
-    taktTime: float = 0.0
-    dailyDemand: int = 0
+    """Complete line balance data with range constraints."""
+    balanceRate: float = Field(default=0.0, ge=0.0, le=1.0)
+    smoothIndex: float = Field(default=0.0, ge=0.0)
+    taktTime: float = Field(default=0.0, ge=0.0)
+    dailyDemand: int = Field(default=0, ge=0)
     bottleneck: str = ""
-    lostCapacity: float = 0.0
-    lostValue: float = 0.0
+    lostCapacity: float = Field(default=0.0, ge=0.0)
+    lostValue: float = Field(default=0.0, ge=0.0)
     stations: List[StationInfo] = Field(default_factory=list)
     causalRules: List[CausalRule] = Field(default_factory=list)
     ecrsItems: List[EcrsItem] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_none_values(cls, data):
+        """Coerce None values to defaults."""
+        if isinstance(data, dict):
+            for key in ("balanceRate", "smoothIndex", "taktTime", "lostCapacity", "lostValue"):
+                if data.get(key) is None:
+                    data[key] = 0.0
+            for key in ("bottleneck",):
+                if data.get(key) is None:
+                    data[key] = ""
+            if data.get("dailyDemand") is None:
+                data["dailyDemand"] = 0
+        return data
+
 
 class BottleneckDiagnosis(BaseModel):
+    """Bottleneck diagnosis result."""
     station: str
     level: str
     levelLabel: str
@@ -371,20 +422,29 @@ class BottleneckDiagnosis(BaseModel):
 # -- Report schemas (Phase 3) --------------------------------------------------
 
 class ReportKpi(BaseModel):
-    totalOutput: int = 0
-    completionRate: float = 0.0
-    yieldRate: float | None = None
-    onTimeRate: float = 0.0
-    oee: float = 0.0
+    """Report KPI response data with range constraints."""
+    totalOutput: int = Field(default=0, ge=0)
+    totalOutput_hasData: bool = Field(default=False)
+    completionRate: float = Field(default=0.0, ge=0.0, le=200.0)
+    completionRate_hasData: bool = Field(default=False)
+    yieldRate: float | None = Field(default=None, ge=0.0, le=100.0)
+    yieldRate_hasData: bool = Field(default=False)
+    onTimeRate: float = Field(default=0.0, ge=0.0, le=100.0)
+    onTimeRate_hasData: bool = Field(default=False)
+    oee: float | None = Field(default=None, ge=0.0, le=100.0)
+    oee_hasData: bool = Field(default=False)
+    utilization: float = Field(default=0.0, ge=0.0, le=100.0)
+    utilization_hasData: bool = Field(default=False)
     changes: Optional[dict] = None
 
 
 class TopCustomer(BaseModel):
+    """Top customer ranking item with range constraints."""
     name: str
-    orders: int = 0
-    qty: int = 0
-    amount: float = 0.0
-    share: float = 0.0
+    orders: int = Field(default=0, ge=0)
+    qty: int = Field(default=0, ge=0)
+    amount: float = Field(default=0.0, ge=0.0)
+    share: float = Field(default=0.0, ge=0.0, le=100.0)
     trend: str = ""
 
 
@@ -428,6 +488,70 @@ class QualityCheckUpdate(BaseModel):
 
 
 class ProductMixItem(BaseModel):
+    """Product mix pie chart item."""
     label: str
-    value: float
+    value: float = Field(ge=0.0)
     color: str = ""
+
+
+# -- Worktime response schemas ------------------------------------------------
+
+class WorktimeSummary(BaseModel):
+    """Worktime summary response with range constraints."""
+    totalOps: int = Field(default=0, ge=0)
+    avgEfficiency: float = Field(default=0.0, ge=0.0, le=500.0)
+    wasteRatio: float = Field(default=0.0, ge=0.0, le=100.0)
+    totalStdTimeHours: float = Field(default=0.0, ge=0.0)
+
+
+class WorktimeOperation(BaseModel):
+    """Worktime operation record with range constraints."""
+    id: int = Field(ge=0)
+    operation: str
+    station: str
+    actual: float = Field(ge=0.0)
+    standard: float = Field(ge=0.0)
+    efficiency: float = Field(ge=0.0, le=500.0)
+    modTotal: float = Field(default=0.0, ge=0.0)
+    wastePct: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class MonthlyOutput(BaseModel):
+    """Monthly output trend data with range constraints."""
+    labels: list = Field(default_factory=list)
+    values: list = Field(default_factory=list)
+
+
+# -- Validation helper --------------------------------------------------------
+
+import logging as _logging
+
+_logger = _logging.getLogger(__name__)
+
+
+def validate_response_data(model_class, data: dict) -> dict:
+    """Validate response data dict against a Pydantic model with Field constraints.
+
+    Raises ValueError with a descriptive message if any field is out of range,
+    which FastAPI will convert to a 400 response. Otherwise returns the
+    validated (and default-populated) dict.
+
+    Args:
+        model_class: A Pydantic BaseModel subclass with Field(ge=/le=) constraints.
+        data: Raw data dict to validate.
+
+    Returns:
+        Dict with validated values (missing fields filled with defaults).
+
+    Raises:
+        ValueError: If validation fails (caught by FastAPI as 400).
+    """
+    try:
+        return model_class.model_validate(data).model_dump()
+    except ValidationError as e:
+        errors = [
+            f"{err['loc'][0]}: {err['msg']}" for err in e.errors()
+        ]
+        msg = f"response validation failed: {'; '.join(errors)}"
+        _logger.error("%s | data=%s", msg, data)
+        raise ValueError(msg)

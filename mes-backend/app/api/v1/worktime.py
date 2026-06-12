@@ -22,7 +22,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.models.database import get_session, init_db
-from app.models.schemas import ApiResponse, PaginatedResponse
+from app.models.schemas import (
+    ApiResponse, PaginatedResponse, WorktimeSummary,
+    WorktimeOperation, validate_response_data,
+)
 from app.services import worktime_aggregator
 from app.api.deps import get_db_session, require_read_all, require_admin
 
@@ -77,7 +80,7 @@ def calibrate_worktime(
             "station": record.station_id,
             "actual": round(record.actual_ms / 1000.0, 2),
             "standard": round(record.standard_ms / 1000.0, 2),
-            "efficiency": record.efficiency,
+            "efficiency": round(record.efficiency * 100, 2),
         },
         timestamp=time.time(),
     )
@@ -132,12 +135,12 @@ def get_worktime_summary(
 ):
     """Get worktime summary statistics for a station and shift."""
     raw = worktime_aggregator.get_worktime_summary(session, station, shift)
-    data = {
+    data = validate_response_data(WorktimeSummary, {
         "totalOps": raw.get("total_ops", 0),
-        "avgEfficiency": raw.get("avg_efficiency", 0.0),
-        "wasteRatio": raw.get("waste_ratio", 0.0),
+        "avgEfficiency": round(raw.get("avg_efficiency", 0.0) * 100, 2),
+        "wasteRatio": round(raw.get("waste_ratio", 0.0) * 100, 2),
         "totalStdTimeHours": raw.get("total_std_time_hours", 0.0),
-    }
+    })
     return ApiResponse(data=data, timestamp=time.time())
 
 
@@ -150,22 +153,64 @@ def get_operations(
     session: Session = Depends(get_db_session),
     _user: dict = Depends(require_read_all),
 ):
-    """Get per-operation worktime records with pagination."""
+    """Get per-operation worktime records with pagination.
+
+    Each record includes a ``wastePct`` field representing the percentage
+    of time spent on non-value-added therblig elements
+    (``TherbligDetail.is_waste == True``).
+    """
+    from sqlalchemy import case as sa_case, func as sa_func
+
+    from app.models.database import TherbligDetail
+
     records, total = worktime_aggregator.get_operations(
         session, station, shift, page=page, page_size=page_size,
     )
-    items = [
-        {
+
+    # ── Bulk wastePct calculation ────────────────────────────────────
+    # Compute waste ratio for all returned records in a single query.
+    record_ids = [r.id for r in records]
+    if record_ids:
+        waste_rows = (
+            session.query(
+                TherbligDetail.worktime_record_id,
+                sa_func.sum(TherbligDetail.actual_ms).label("total_ms"),
+                sa_func.sum(
+                    sa_case(
+                        (TherbligDetail.is_waste == True, TherbligDetail.actual_ms),
+                        else_=0,
+                    )
+                ).label("waste_ms"),
+            )
+            .filter(TherbligDetail.worktime_record_id.in_(record_ids))
+            .group_by(TherbligDetail.worktime_record_id)
+            .all()
+        )
+        waste_map: dict = {
+            row.worktime_record_id: {
+                "waste_ms": float(row.waste_ms or 0),
+                "total_ms": float(row.total_ms or 0),
+            }
+            for row in waste_rows
+        }
+    else:
+        waste_map = {}
+
+    items = []
+    for r in records:
+        w = waste_map.get(r.id, {"waste_ms": 0.0, "total_ms": 0.0})
+        waste_pct = round(w["waste_ms"] / w["total_ms"] * 100, 2) if w["total_ms"] > 0 else 0.0
+        items.append(validate_response_data(WorktimeOperation, {
             "id": r.id,
             "operation": r.operation,
             "station": r.station_id,
             "actual": round(r.actual_ms / 1000.0, 2),
             "standard": round(r.standard_ms / 1000.0, 2),
-            "efficiency": round(r.efficiency, 4),
+            "efficiency": round(r.efficiency * 100, 2),
             "modTotal": round(r.mod_total, 2),
-        }
-        for r in records
-    ]
+            "wastePct": waste_pct,
+        }))
+
     return ApiResponse(
         data=items,
         timestamp=time.time(),
@@ -199,6 +244,7 @@ def get_therblig_detail(
             "actual": round(d.actual_ms / 1000.0, 3),
             "pct": round(d.pct, 1),
             "isWaste": d.is_waste,
+            "standardSeconds": round(d.mod * 0.129, 2),
         }
         for d in details
     ]
@@ -206,12 +252,20 @@ def get_therblig_detail(
     from app.models.database import WorktimeRecord
     record = session.get(WorktimeRecord, operation_id)
 
+    # MOD法 standard time & efficiency (计算下沉 — 前端不应复算)
+    total_actual_s = sum(d.actual_ms for d in details) / 1000.0
+    total_mod = sum(d.mod for d in details)
+    standard_time = round(total_mod * 0.129, 2)  # MOD法秒
+    efficiency = round(standard_time / total_actual_s * 100, 2) if total_actual_s > 0 else 0.0
+
     return ApiResponse(
         data={
             "allowanceRate": 0.15,
             "rows": rows,
             "operationId": operation_id,
             "operationName": record.operation if record else "",
+            "standardTime": standard_time,
+            "efficiency": efficiency,
         },
         timestamp=time.time(),
     )
@@ -223,18 +277,36 @@ def get_recent_worktime(
     session: Session = Depends(get_db_session),
     _user: dict = Depends(require_read_all),
 ):
-    """Get latest process segments."""
-    segments = worktime_aggregator.get_recent_segments(session, limit=limit)
+    """Get latest process segments with standard/efficiency from associated WorktimeRecord."""
+    from app.models.database import ProcessSegment, WorktimeRecord
+
+    rows = (
+        session.query(
+            ProcessSegment.id,
+            ProcessSegment.action,
+            ProcessSegment.station_id,
+            ProcessSegment.duration_ms,
+            WorktimeRecord.standard_ms,
+            WorktimeRecord.efficiency,
+        )
+        .outerjoin(
+            WorktimeRecord,
+            ProcessSegment.worktime_record_id == WorktimeRecord.id,
+        )
+        .order_by(ProcessSegment.start_time.desc())
+        .limit(limit)
+        .all()
+    )
     items = [
         {
-            "id": s.id,
-            "operation": s.action,
-            "station": s.station_id,
-            "actual": round(s.duration_ms / 1000.0, 1),  # ms → s
-            "standard": 0.0,
-            "efficiency": 0.0,
+            "id": row.id,
+            "operation": row.action,
+            "station": row.station_id,
+            "actual": round(row.duration_ms / 1000.0, 1),  # ms → s
+            "standard": round((row.standard_ms or 0.0) / 1000.0, 1),  # ms → s
+            "efficiency": row.efficiency or 0.0,
         }
-        for s in segments
+        for row in rows
     ]
     return ApiResponse(
         data=items,
@@ -334,14 +406,26 @@ def get_therblig_distribution(
     return ApiResponse(data={"items": data}, timestamp=time.time())
 
 
-def _date_format_func(session: Session, column):
+from sqlalchemy import String as _String
+
+def _date_format_func(session: Session, column, fmt: str = "%Y-%m-%d"):
     """Return a DB-agnostic date truncation expression for grouping.
 
-    Uses ``func.date()`` which works across SQLite, PostgreSQL, and MySQL
-    to extract the ``YYYY-MM-DD`` portion of a datetime column.
+    Uses ``func.date()`` / ``func.substr()`` which work across SQLite,
+    PostgreSQL, and MySQL.
+
+    Args:
+        session: SQLAlchemy session (unused, kept for backwards compat).
+        column:  Datetime column to truncate.
+        fmt:     Desired format.
+                 - "%%Y-%%m-%%d" (default) → YYYY-MM-DD via ``func.date()``
+                 - "%%Y-%%m"              → YYYY-MM via ``func.substr(func.date(...), 1, 7)``
     """
     from sqlalchemy import func as sa_func
-    return sa_func.date(column)
+    if fmt == "%Y-%m":
+        return sa_func.substr(sa_func.date(column), 1, 7)
+    # Cast to string for cross-DB compatibility (SQLite→str, PG→str)
+    return sa_func.cast(sa_func.date(column), _String)
 
 
 @router.get("/boxplot")

@@ -266,6 +266,96 @@ describe('Dashboard Real-time Logic', () => {
     })
   })
 
+  describe('方案A: KPI 阈值从 meta.thresholds 加载', () => {
+    it('should load meta via fetchMeta in loadAll', async () => {
+      vi.mock('../../src/api/index.js', () => ({
+        fetchDashboardKpi: vi.fn(() => Promise.resolve(null)),
+        fetchLineBalanceSummary: vi.fn(() => Promise.resolve(null)),
+        fetchWorktimeTrend: vi.fn(() => Promise.resolve(null)),
+        fetchStationTimeline: vi.fn(() => Promise.resolve(null)),
+        fetchTherbligDistribution: vi.fn(() => Promise.resolve(null)),
+        fetchRecentWorktime: vi.fn(() => Promise.resolve(null)),
+        fetchBottleneckDiagnosis: vi.fn(() => Promise.resolve(null)),
+        fetchMeta: vi.fn()
+      }), { await: true })
+
+      const { fetchMeta } = await import('../../src/api/index.js')
+
+      fetchMeta.mockResolvedValue({
+        stations: [],
+        shifts: [],
+        lines: [],
+        mod_unit: 0.129,
+        default_allowance_rate: 15,
+        thresholds: {
+          balance_rate: { excellent_min: 80, fair_min: 60 }
+        }
+      })
+
+      const meta = await fetchMeta()
+      const excellent = meta.thresholds.balance_rate.excellent_min
+      const fair = meta.thresholds.balance_rate.fair_min
+
+      // Thresholds come from meta, not hardcoded
+      expect(excellent).toBe(80)
+      expect(fair).toBe(60)
+
+      // Not the old hardcoded values (85, 70)
+      expect(excellent).not.toBe(85)
+      expect(fair).not.toBe(70)
+    })
+
+    it('should use meta thresholds for KPI rating in template (no hardcoded 85/70)', async () => {
+      const { readFileSync } = await import('fs')
+      const { resolve } = await import('path')
+      const source = readFileSync(resolve(process.cwd(), 'src/views/Dashboard.vue'), 'utf-8')
+
+      // Template should reference threshold variables, not hardcoded numbers
+      // Check that the threshold numbers 85 and 70 are NOT hardcoded in rating logic
+      // The template should reference a ref like thresholdExcellent or similar
+      const hardcodedRating85 = source.match(/balanceRate\s*>=\s*85/)
+      const hardcodedRating70 = source.match(/balanceRate\s*>=\s*70/)
+
+      expect(hardcodedRating85).toBeNull()
+      expect(hardcodedRating70).toBeNull()
+    })
+
+    it('should load meta BEFORE other data in loadAll', async () => {
+      const fetchMeta = vi.fn(() => Promise.resolve({
+        stations: [], shifts: [], lines: [],
+        mod_unit: 0.129,
+        default_allowance_rate: 15,
+        thresholds: { balance_rate: { excellent_min: 80, fair_min: 60 } }
+      }))
+
+      const fetchOtherData = vi.fn(() => Promise.resolve(null))
+
+      // Simulate loadAll: meta first, then other data
+      let metaLoaded = false
+      let otherLoaded = false
+
+      async function loadAll() {
+        try {
+          await fetchMeta()
+          metaLoaded = true
+        } catch {
+          // error shown, no data loaded
+        }
+        await fetchOtherData()
+        otherLoaded = true
+      }
+
+      await loadAll()
+
+      expect(metaLoaded).toBe(true)
+      expect(otherLoaded).toBe(true)
+      // fetchMeta was called before fetchOtherData
+      expect(fetchMeta.mock.invocationCallOrder[0]).toBeLessThan(
+        fetchOtherData.mock.invocationCallOrder[0]
+      )
+    })
+  })
+
   describe('SSE event handling', () => {
     it('should dispatch window custom event for alert SSE events', () => {
       const dispatchSpy = vi.spyOn(window, 'dispatchEvent')

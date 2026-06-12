@@ -25,8 +25,12 @@ from sqlalchemy.orm import Session
 from app.core.enums import OrderStatus
 from app.models.database import Order, Customer
 from app.models.quality_check import QualityCheck
-from app.models.schemas import ApiResponse
+from app.models.schemas import (
+    ApiResponse, ReportKpi, TopCustomer, MonthlyOutput,
+    ProductMixItem, validate_response_data,
+)
 from app.api.deps import get_db_session, require_read_all
+from app.api.v1.worktime import _date_format_func
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +60,28 @@ def report_kpi(
 
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%d")
+
+    # Compute HUR from ProcessSegment within the same period
+    from app.models.database import ProcessSegment
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    seg_stats = session.query(
+        func.coalesce(func.sum(ProcessSegment.duration_ms), 0).label("total_ms"),
+        func.coalesce(func.sum(case((ProcessSegment.action == "wait", ProcessSegment.duration_ms), else_=0)), 0).label("wait_ms"),
+        func.coalesce(func.sum(case((ProcessSegment.action == "idle", ProcessSegment.duration_ms), else_=0)), 0).label("idle_ms"),
+    ).filter(
+        ProcessSegment.start_time >= today_start,
+    ).first()
+
+    total_ms = float(seg_stats.total_ms)
+    wait_ms = float(seg_stats.wait_ms)
+    idle_ms = float(seg_stats.idle_ms)
+    if total_ms > 0:
+        hur = (total_ms - wait_ms - idle_ms) / total_ms
+        utilization_val = round(hur * 100, 2)
+        utilization_has_data = True
+    else:
+        utilization_val = 0.0
+        utilization_has_data = False
 
     # Aggregate all KPI metrics in 2 queries instead of 5.
     # Query 1: base counts and sums
@@ -92,15 +118,25 @@ def report_kpi(
     else:
         yield_rate = None
 
+    has_orders = total_orders > 0
+    has_quality = bool(quality_data and quality_data.total_checked > 0)
+
     return ApiResponse(
-        data={
+        data=validate_response_data(ReportKpi, {
             "totalOutput": int(total_output),
-            "completionRate": round(completion_rate, 4),
+            "totalOutput_hasData": has_orders,
+            "completionRate": round(completion_rate * 100, 2),
+            "completionRate_hasData": has_orders,
             "yieldRate": yield_rate,
-            "onTimeRate": round(on_time_rate, 4),
-            "oee": None,  # TODO: requires PLC integration (availability * performance * quality)
-            "changes": None,  # TODO: requires historical period comparison
-        },
+            "yieldRate_hasData": has_quality,
+            "onTimeRate": round(on_time_rate * 100, 2),
+            "onTimeRate_hasData": completed_orders > 0,
+            "oee": None,
+            "oee_hasData": False,
+            "utilization": utilization_val,
+            "utilization_hasData": utilization_has_data,
+            "changes": {},
+        }),
         timestamp=time.time(),
     )
 
@@ -124,14 +160,15 @@ def monthly_output(
     earliest = now - timedelta(days=(months - 1) * 30 + 30)
     month_start = earliest.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    # Single query: GROUP BY year-month
+    # Single query: GROUP BY year-month (DB-agnostic, not SQLite-only strftime)
+    month_col = _date_format_func(session, Order.created_at, "%Y-%m")
     rows = session.query(
-        func.strftime("%Y-%m", Order.created_at).label("month"),
+        month_col.label("month"),
         func.sum(Order.completed_qty).label("total"),
     ).filter(
         Order.created_at >= month_start,
     ).group_by(
-        func.strftime("%Y-%m", Order.created_at)
+        month_col
     ).all()
 
     # Build lookup dict
@@ -147,7 +184,7 @@ def monthly_output(
         values.append(monthly_map.get(key, 0))
 
     return ApiResponse(
-        data={"labels": labels, "values": values},
+        data=validate_response_data(MonthlyOutput, {"labels": labels, "values": values}),
         timestamp=time.time(),
     )
 
@@ -433,7 +470,7 @@ def top_customers(
 ):
     """Get top customer ranking by order contribution.
 
-    Returns customer name, order count, quantity, amount share.
+    Returns customer name, order count, quantity, and percentage share.
     """
     results = session.query(
         Customer.name,
@@ -448,14 +485,14 @@ def top_customers(
 
     total_qty = sum(r.total_qty or 0 for r in results)
     items = [
-        {
+        validate_response_data(TopCustomer, {
             "name": r.name,
             "orders": r.order_count or 0,
             "qty": int(r.total_qty or 0),
             "amount": float(r.total_qty or 0),
-            "share": round(float(r.total_qty or 0) / total_qty, 4) if total_qty > 0 else 0,
-            "trend": 0.0,  # requires historical comparison for period-over-period trend
-        }
+            "share": round(float(r.total_qty or 0) / total_qty * 100, 2) if total_qty > 0 else 0,
+            "trend": "",
+        })
         for i, r in enumerate(results)
     ]
 

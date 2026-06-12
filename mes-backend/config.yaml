@@ -44,6 +44,26 @@ app:
     login_window_seconds: 60
     users:
     - display_name: Admin
-      password_hash: $2b$12$yYiz6TEIg7uTmEK.0orLkO9BhzE0GUb.POjonAYISTrxko2yqVk9q
+      password_hash: $2b$12$a1HhOY3dtSuXWgpH/pKMLuCgM21rFEFLdv48dPsgJ/DHvmkVjkTAO
       role: admin
       username: admin
+  meta:
+    mod_unit: 0.129
+    default_allowance_rate: 15
+    shifts:
+      - value: morning
+        label: 早班
+      - value: afternoon
+        label: 中班
+      - value: night
+        label: 夜班
+    thresholds:
+      efficiency:
+        normal_min: 90
+        fast_min: 110
+      balance_rate:
+        excellent_min: 85
+        fair_min: 70
+      waste_ratio:
+        warning_min: 15
+        danger_min: 25

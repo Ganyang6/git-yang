@@ -21,27 +21,38 @@ from app.models.database import ProcessSegment
 def get_station_metrics(
     session: Session,
     range_hours: float = 8.0,
+    range_start: Optional[datetime] = None,
+    line: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get per-station average operation time from recent segments.
 
     Args:
         session: Database session.
-        range_hours: Hours to look back for segment data.
+        range_hours: Hours to look back (used when range_start is None).
+        range_start: Explicit start datetime override. When provided, used instead
+                     of computing from range_hours.
+        line: Optional line filter. When provided, only segments matching
+              this line are included.
 
     Returns:
         List of dicts with keys: name, time (ms), count.
     """
-    now = datetime.now(timezone.utc)
-    range_start = now - timedelta(hours=range_hours)
+    if range_start is None:
+        now = datetime.now(timezone.utc)
+        range_start = now - timedelta(hours=range_hours)
 
-    results = session.query(
+    query = session.query(
         ProcessSegment.station_id,
         func.avg(ProcessSegment.duration_ms).label("avg_duration"),
         func.count(ProcessSegment.id).label("seg_count"),
     ).filter(
         ProcessSegment.start_time >= range_start,
         ProcessSegment.action != "idle",
-    ).group_by(ProcessSegment.station_id).all()
+    )
+    if line:
+        query = query.filter(ProcessSegment.line == line)
+
+    results = query.group_by(ProcessSegment.station_id).all()
 
     station_data = []
     for r in results:
@@ -68,9 +79,9 @@ def compute_balance_metrics(
     """
     if not station_data:
         return {
-            "balanceRate": 1.0,
-            "smoothIndex": 0.0,
-            "bottleneckStation": "",
+            "balanceRate": None,
+            "smoothIndex": None,
+            "bottleneckStation": None,
             "stations": [],
         }
 
@@ -112,14 +123,24 @@ def compute_balance_metrics(
 def compute_line_balance_rate(
     session: Session,
     range_hours: float = 8.0,
+    range_start: Optional[datetime] = None,
+    line: Optional[str] = None,
 ) -> tuple[float, str, list]:
     """Compute line balance rate (backward-compatible with dashboard).
 
     LBR = sum(D_i) / (max(D_i) * N_stations)
 
+    Args:
+        session: Database session.
+        range_hours: Hours to look back (used when range_start is None).
+        range_start: Explicit start datetime override. When provided,
+                     the query uses this time window instead of range_hours.
+        line: Optional line filter. When provided, only segments matching
+              this line are included.
+
     Returns (balance_rate, bottleneck_station, station_list).
     """
-    station_data = get_station_metrics(session, range_hours)
+    station_data = get_station_metrics(session, range_hours, range_start=range_start, line=line)
     metrics = compute_balance_metrics(station_data)
     return (
         metrics["balanceRate"],

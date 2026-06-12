@@ -41,6 +41,7 @@ from app.api.sse_chat import router as sse_chat_router
 from app.api.v1.anomaly import router as anomaly_router
 from app.api.v1.video import router as video_router
 from app.api.v1.quality import router as quality_router
+from app.api.v1.meta import router as meta_router
 
 from app.api.deps import require_auth
 from app.core.metrics import tasks_created, tasks_completed, tasks_failed, tasks_archived
@@ -383,6 +384,7 @@ app.include_router(sse_chat_router)
 app.include_router(anomaly_router)
 app.include_router(video_router)
 app.include_router(quality_router)
+app.include_router(meta_router)
 
 
 # Development/testing: expose a controlled error endpoint to validate global error handling

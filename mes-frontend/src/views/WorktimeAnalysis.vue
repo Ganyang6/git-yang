@@ -9,12 +9,10 @@
       <div class="flex gap-2 items-center">
         <select v-model="selectedStation" class="select" style="width: 140px" @change="loadData">
           <option value="all">全部工位</option>
-          <option v-for="s in stationOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+          <option v-for="s in metaStations" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
         <select v-model="selectedShift" class="select" style="width: 120px" @change="loadData">
-          <option value="morning">早班</option>
-          <option value="afternoon">中班</option>
-          <option value="night">晚班</option>
+          <option v-for="s in metaShifts" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
         <button class="btn btn-primary btn-sm" :disabled="loading" @click="exportWorktimePdf">
           <svg
@@ -152,8 +150,8 @@
                 </span>
               </div>
               <div class="mono">{{ row.mod }}</div>
-              <div class="mono">{{ (row.mod * 0.129).toFixed(2) }}</div>
-              <div class="mono" :class="row.actual > row.mod * 0.129 * 1.1 ? 'text-danger' : ''">
+              <div class="mono">{{ row.standardSeconds }}</div>
+              <div class="mono" :class="row.actual > row.standardSeconds * 1.1 ? 'text-danger' : ''">
                 {{ row.actual }}
               </div>
               <div class="pct-bar-wrap">
@@ -165,12 +163,8 @@
 
           <div class="therblig-footer">
             <div class="tf-item">
-              <span class="tf-label">正常时间合计</span>
-              <span class="tf-value">{{ normalTime }}s</span>
-            </div>
-            <div class="tf-item">
               <span class="tf-label">宽放率</span>
-              <span class="tf-value">{{ allowanceRate }}%</span>
+              <span class="tf-value">{{ (allowanceRate * 100).toFixed(0) }}%</span>
             </div>
             <div class="tf-item">
               <span class="tf-label">标准工时(MOD法)</span>
@@ -339,11 +333,15 @@ import {
   fetchTaskStatus,
   downloadBlob,
   cleanupWorktimeData,
-  calibrateWorktime
+  calibrateWorktime,
+  fetchMeta
 } from '../api/index.js'
 import { ElMessageBox } from 'element-plus'
 import { useConfirm } from '../composables/useConfirm.js'
 import DOMPurify from 'dompurify'
+
+const metaStations = ref([])
+const metaShifts = ref([])
 
 const selectedStation = ref('all')
 const selectedShift = ref('morning')
@@ -373,13 +371,12 @@ const activeRecord = ref(null)
 const thermRows = ref([])
 const allowanceRate = ref(15)
 
-const stationOptions = [
-  { value: 'WS-01', label: 'WS-01' },
-  { value: 'WS-02', label: 'WS-02' },
-  { value: 'WS-03', label: 'WS-03' },
-  { value: 'WS-04', label: 'WS-04' },
-  { value: 'WS-05', label: 'WS-05' }
-]
+function formatStdTime(hours) {
+  const seconds = hours * 3600
+  if (seconds < 60) return seconds.toFixed(1) + 's'
+  if (seconds < 3600) return (seconds / 60).toFixed(1) + 'min'
+  return hours.toFixed(2) + 'h'
+}
 
 // ─── Summary Cards(从 API 数据派生) ─────────────────────────────────────────
 const summaryCards = computed(() => {
@@ -409,22 +406,20 @@ const summaryCards = computed(() => {
     {
       key: 'total_stdtime',
       label: '总标准工时',
-      value: d ? d.totalStdTimeHours + 'h' : null,
+      value: d ? formatStdTime(d.totalStdTimeHours) : null,
       color: '#6366f1',
       icon: DOMPurify.sanitize(`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`)
     }
   ]
 })
 
-// ─── Therblig 计算 ─────────────────────────────────────────────────────────────
-const normalTime = computed(() => thermRows.value.reduce((s, r) => s + r.mod * 0.129, 0).toFixed(2))
-const standardTime = computed(() =>
-  (parseFloat(normalTime.value) * (1 + allowanceRate.value / 100)).toFixed(2)
-)
-const actualVsStd = computed(() => {
-  if (!activeRecord.value || !parseFloat(standardTime.value)) return '--'
-  return Math.round((activeRecord.value.actual / parseFloat(standardTime.value)) * 100)
-})
+// ─── Therblig 计算（计算下沉 — 公式在后端，前端不复算） ───────────────────────
+const activeDetail = ref(null)  // 存储 fetchTherbligDetail 的完整返回
+
+const efficiency = computed(() => activeDetail.value?.efficiency ?? null)
+const efficiencyPct = computed(() => efficiency.value != null ? Math.round(efficiency.value * 100) : null)
+const standardTime = computed(() => activeDetail.value?.standardTime ?? null)
+const actualVsStd = computed(() => efficiencyPct.value != null ? efficiencyPct.value : '--')
 
 // ─── Filter ───────────────────────────────────────────────────────────────────
 const filteredOps = computed(() => {
@@ -471,10 +466,12 @@ async function selectRecord(op) {
   activeRecord.value = op
   thermRows.value = []
   allowanceRate.value = 15
+  activeDetail.value = null  // 清空旧详情
   loadingDetail.value = true
 
   try {
     const detail = await fetchTherbligDetail(op.id)
+    activeDetail.value = detail  // 保存完整返回供 standardTime/efficiency 使用
     thermRows.value = detail.rows || []
     allowanceRate.value = detail.allowanceRate ?? 15
   } catch {
@@ -689,7 +686,16 @@ function drawCompareChart() {
   ctx.fillText('实际工时', pad.left + 78, 12)
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 先加载元数据（工位/班次），再加载业务数据
+  // 不设硬编码 fallback：元数据加载失败时显示错误提示
+  try {
+    const meta = await fetchMeta()
+    metaStations.value = (meta.stations || []).map(s => ({ value: s.id, label: s.name }))
+    metaShifts.value = (meta.shifts || []).map(s => ({ value: s.value, label: s.label }))
+  } catch {
+    errorMsg.value = '元数据加载失败，请刷新重试'
+  }
   loadData()
   // P2 #82: debounce resize handler (200ms)
   let resizeTimer = null

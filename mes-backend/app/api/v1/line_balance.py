@@ -19,7 +19,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.database import get_session, Order
-from app.models.schemas import ApiResponse
+from app.models.schemas import (
+    ApiResponse, LineBalanceSummary, LineBalanceFull,
+    validate_response_data,
+)
 from app.services.line_balance_service import (
     compute_balance_metrics,
     generate_ecrs_suggestions,
@@ -32,13 +35,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/line-balance", tags=["line-balance"])
 
 
-def _compute_line_balance_context(session: Session) -> dict:
+def _compute_line_balance_context(
+    session: Session,
+    line: Optional[str] = None,
+    range_hours: float = 8.0,
+) -> dict:
     """Compute shared line balance context used by both /summary and /full.
+
+    Args:
+        session: Database session.
+        line: Optional line filter to scope station metrics.
+        range_hours: Look-back window in hours (passed to get_station_metrics).
 
     Returns a dict with keys: station_data, stations, lbr, si, bottleneck,
     takt_time, avg_d.
     """
-    station_data = get_station_metrics(session)
+    station_data = get_station_metrics(session, line=line, range_hours=range_hours)
     n = len(station_data) if station_data else 1
     avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
 
@@ -72,13 +84,13 @@ def line_balance_summary(
     ctx = _compute_line_balance_context(session)
 
     return ApiResponse(
-        data={
+        data=validate_response_data(LineBalanceSummary, {
             "balanceRate": ctx["lbr"],
             "smoothIndex": ctx["si"],
             "bottleneckStation": ctx["bottleneck"],
             "stations": ctx["stations"],
             "taktTime": round(ctx["takt_time"], 1),
-        },
+        }),
         timestamp=time.time(),
     )
 
@@ -90,7 +102,7 @@ def line_balance_full(
     _user: dict = Depends(require_read_all),
 ):
     """Get complete line balance data with ECRS suggestions."""
-    ctx = _compute_line_balance_context(session)
+    ctx = _compute_line_balance_context(session, line=line)
     stations = ctx["stations"]
     n = ctx["n"]
     avg_d = ctx["avg_d"]
@@ -128,15 +140,78 @@ def line_balance_full(
                 "level": "warning",
             })
 
-    if si >= 10:
+    if si is not None and si >= 10:
         causal_rules.append({
             "condition": f"SI >= 10s (actual: {si:.0f}s)",
             "conclusion": "High workload variance across stations",
             "level": "warning",
         })
 
+    # --- Compute baseline metrics for saving/improvement formulas ---
+    station_times = [s["time"] for s in stations]
+    sorted_times = sorted(station_times, reverse=True)
+    max_time = sorted_times[0] if sorted_times else 0
+    second_max_time = sorted_times[1] if len(sorted_times) > 1 else max_time
+    total_time = sum(station_times)
+    n_stations = len(station_times)
+
+    # 当前平衡率
+    br_old = total_time / (max_time * n_stations) if max_time > 0 and n_stations > 0 else 0
+
+    # 保守改善：瓶颈降到次高水平
+    new_times = list(station_times)
+    for i, s in enumerate(stations):
+        if s.get("isBottleneck"):
+            new_times[i] = second_max_time
+            break
+    new_max = max(new_times, default=0)
+    br_new = sum(new_times) / (new_max * n_stations) if new_max > 0 and n_stations > 0 else 0
+
+    saving_seconds = round(max_time - second_max_time, 1)
+    improvement_pct = round((br_new - br_old) * 100, 1)
+
+    # --- Map causal_rules to frontend-expected format ---
+    mapped_causal = []
+    for i, r in enumerate(causal_rules):
+        mapped_causal.append({
+            "station": bottleneck,
+            "condition": r["condition"],
+            "cause": r["conclusion"],
+            "action": "优化瓶颈工位操作流程，减少非增值动作",
+            "saving": f"{saving_seconds}s/件",
+            "improvement": f"{improvement_pct}%",
+        })
+
+    # --- Map ecrs_items to frontend-expected format ---
+    ecrs_type_map = {
+        "Eliminate": ("eliminate", "消除"),
+        "Combine": ("combine", "合并"),
+        "Rearrange": ("rearrange", "重排"),
+        "Simplify": ("simplify", "简化"),
+    }
+    mapped_ecrs = []
+    for i, item in enumerate(ecrs_items):
+        etype, etype_label = ecrs_type_map.get(item["method"], ("", item["method"]))
+        # 根据 ECRS 类型赋予不同的 saving 值
+        if etype in ("eliminate", "simplify"):
+            ecrs_saving = f"{saving_seconds}s/件"
+        elif etype == "combine":
+            ecrs_saving = f"{round(max_time * 0.3, 1)}s/件"
+        else:  # rearrange
+            ecrs_saving = "待分析"
+        mapped_ecrs.append({
+            "type": etype,
+            "typeLabel": etype_label,
+            "station": item["target"],
+            "content": item["description"],
+            "saving": ecrs_saving,
+            "difficulty": 2,
+            "priority": "P2",
+            "status": "pending",
+        })
+
     return ApiResponse(
-        data={
+        data=validate_response_data(LineBalanceFull, {
             "balanceRate": lbr,
             "smoothIndex": si,
             "taktTime": round(takt_time, 1),
@@ -145,8 +220,8 @@ def line_balance_full(
             "lostCapacity": round(lost_capacity, 1),
             "lostValue": round(lost_value, 1),
             "stations": stations,
-            "causalRules": causal_rules,
-            "ecrsItems": ecrs_items,
-        },
+            "causalRules": mapped_causal,
+            "ecrsItems": mapped_ecrs,
+        }),
         timestamp=time.time(),
     )
