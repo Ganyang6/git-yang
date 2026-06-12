@@ -1,4 +1,4 @@
-# MES 边缘AI作业工时测定系统
+# 面向中小型离散加工企业的管理系统
 
 > **MES Edge AI Worktime Analysis System**  
 > 面向中小型离散加工企业的轻量级 MES 系统，基于边缘 AI 技术实现作业工时的自动化测定与分析。  
