@@ -285,6 +285,30 @@ class EquipmentUpdate(BaseModel):
     next_maintenance: Optional[str] = Field(default=None, alias="nextMaint")
 
 
+# -- Stations --
+
+class StationCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    worker: str = Field(..., min_length=1, max_length=64)
+    line: str = Field(..., min_length=1, max_length=50)
+    shift: str = Field(..., min_length=1, max_length=16)
+
+
+class StationUpdate(BaseModel):
+    worker: Optional[str] = Field(None, min_length=1, max_length=64)
+    line: Optional[str] = Field(None, min_length=1, max_length=50)
+    shift: Optional[str] = Field(None, min_length=1, max_length=16)
+    # 注意：没有 name 字段，编辑不允许改编号
+
+
+class StationResponse(BaseModel):
+    id: int
+    name: str
+    worker: str
+    line: str
+    shift: str
+
+
 # -- Dashboard schemas (Phase 3) -----------------------------------------------
 
 class DashboardKpi(BaseModel):
@@ -368,17 +392,25 @@ class LineBalanceSummary(BaseModel):
 
 
 class EcrsItem(BaseModel):
-    """ECRS suggestion item."""
-    method: str = ""
-    target: str = ""
-    description: str = ""
+    """ECRS suggestion item (frontend-facing format)."""
+    type: str = ""
+    typeLabel: str = ""
+    station: str = ""
+    content: str = ""
+    saving: str = ""
+    difficulty: int = 2
+    priority: str = "P2"
+    status: str = "pending"
 
 
 class CausalRule(BaseModel):
-    """Causal rule for bottleneck diagnosis."""
+    """Causal rule for bottleneck diagnosis (frontend-facing format)."""
+    station: str = ""
     condition: str = ""
-    conclusion: str = ""
-    level: str = ""
+    cause: str = ""
+    action: str = ""
+    saving: str = ""
+    improvement: str = ""
 
 
 class LineBalanceFull(BaseModel):

@@ -118,11 +118,11 @@
         <div class="lb-kpi-label">瓶颈工位</div>
         <div class="lb-kpi-value val-danger">
           <span v-if="loading" class="skeleton-text"></span>
-          <span v-else-if="lbData && lbData.bottleneck">{{ lbData.bottleneck.name }}</span>
+          <span v-else-if="lbData && lbData.bottleneck">{{ getStationDisplayName(lbData.bottleneck) }}</span>
           <span v-else class="no-data">--</span>
         </div>
         <div v-if="lbData && lbData.bottleneck" class="lb-kpi-hint">
-          工时 {{ lbData.bottleneck.time }}s（超节拍{{ lbData.bottleneck.over }}s）
+          工时 {{ bottleneckStation?.time ?? '-' }}s
         </div>
       </div>
       <div class="lb-kpi-divider"></div>
@@ -164,7 +164,7 @@
         </div>
         <div class="whatif-list">
           <div v-for="st in simulateStations" :key="st.id" class="whatif-row">
-            <span class="whatif-name">{{ st.name }}</span>
+            <span class="whatif-name">{{ getStationDisplayName(st.name) }}</span>
             <input
               v-model.number="st.simTime"
               type="range"
@@ -268,7 +268,7 @@
               :font-size="st.fontSize"
               font-weight="700"
               :fill="st.textColor"
-            >{{ st.name }}</text>
+            >{{ getStationDisplayName(st.name) }}</text>
             <text
               :x="st.w / 2"
               :y="st.h / 2 + 12"
@@ -323,7 +323,7 @@
         <div v-else-if="!causalData.length" class="chart-placeholder no-data">暂无诊断数据</div>
         <div v-else class="causal-list">
           <div v-for="c in causalData" :key="c.id" class="causal-item">
-            <div class="causal-station">{{ c.station }}</div>
+            <div class="causal-station">{{ getStationDisplayName(c.station) }}</div>
             <div class="causal-flow">
               <div class="causal-cond">
                 <div class="causal-cond-label">观测条件</div>
@@ -406,7 +406,7 @@
                   <span class="ecrs-tag" :class="`ecrs-${ecrs.type}`">{{ ecrs.typeLabel }}</span>
                 </td>
                 <td>
-                  <span class="station-tag">{{ ecrs.station }}</span>
+                  <span class="station-tag">{{ getStationDisplayName(ecrs.station) }}</span>
                 </td>
                 <td style="max-width: 200px; color: var(--gray-700)">{{ ecrs.content }}</td>
                 <td>
@@ -467,12 +467,38 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { fetchLineBalanceFull, downloadBlob, fetchMeta } from '../api/index.js'
+import { fetchLineBalanceFull, downloadBlob, fetchStations } from '../api/index.js'
 import { useToast } from '../composables/useToast.js'
 
-const metaLines = ref([])
+const stationsMeta = ref([])
 
 const selectedLine = ref('')
+
+// Station display data (from /api/stations)
+const metaLines = computed(() => {
+  const lines = [...new Set(stationsMeta.value.map(s => s.line))].filter(Boolean)
+  return lines.map(l => ({ value: l, label: l }))
+})
+
+const stationDisplayMap = computed(() => {
+  const map = {}
+  for (const s of stationsMeta.value) {
+    if (s.name) map[s.name] = s
+  }
+  return map
+})
+
+function getStationDisplayName(stationId) {
+  if (!stationId || !stationsMeta.value.length) return stationId
+  // Extract station number from station_id (e.g., "WS-01" → "1")
+  const match = stationId.match(/(\d+)$/)
+  const num = match ? String(parseInt(match[1], 10)) : stationId
+  const info = stationDisplayMap.value[num]
+  if (info) {
+    return `编号${info.name} - ${info.worker}(${info.line}-${info.shift})`
+  }
+  return stationId
+}
 const showSimulate = ref(false)
 const lbChart = ref(null)
 let resizeHandler = null
@@ -506,6 +532,12 @@ const lbData = ref(null)
 const stations = computed(() => lbData.value?.stations || [])
 const causalData = computed(() => lbData.value?.causalRules || [])
 const ecrsList = computed(() => lbData.value?.ecrsItems || [])
+
+// P1-2: bottleneck is a string (station name); find the matching station from stations list
+const bottleneckStation = computed(() => {
+  if (!lbData.value?.bottleneck || !stations.value.length) return null
+  return stations.value.find(s => s.name === lbData.value.bottleneck) || null
+})
 
 // 使用 API 返回的 balanceRate/smoothIndex （计算下沉 — 不自行复算）
 const balanceRate = computed(() => lbData.value?.balanceRate != null ? lbData.value.balanceRate * 100 : null)
@@ -604,7 +636,7 @@ const layoutStations = computed(() => {
     return {
       id: st.id || i,
       stationId: i,
-      name: st.name,
+      name: getStationDisplayName(st.name),
       time: showSimulate.value ? (simulateStations.value[i]?.simTime || st.time) : st.time,
       isBottleneck: st.isBottleneck,
       pct: Math.round((st.time / list.reduce((s, s2) => s + s2.time, 0)) * 100),
@@ -794,14 +826,13 @@ function drawLbChart() {
 
     ctx.fillStyle = '#6b7280'
     ctx.font = '10px sans-serif'
-    ctx.fillText(s.name, x + barW / 2, H - 8)
+    ctx.fillText(getStationDisplayName(s.name), x + barW / 2, H - 8)
   })
 }
 
 async function loadMeta() {
   try {
-    const d = await fetchMeta()
-    metaLines.value = (d.lines || []).map(l => ({ value: l.id, label: l.name }))
+    stationsMeta.value = await fetchStations()
     if (metaLines.value.length > 0) {
       selectedLine.value = metaLines.value[0].value
     }
@@ -810,8 +841,8 @@ async function loadMeta() {
   }
 }
 
-onMounted(() => {
-  loadMeta()
+onMounted(async () => {
+  await loadMeta()
   loadData()
   // P2 #83: debounce resize to avoid redundant redraws with stations watcher
   let resizeTimer = null

@@ -25,7 +25,7 @@ const mockFetchVideoTask = vi.fn()
 const mockCancelVideoTask = vi.fn()
 const mockStreamVideoProgress = vi.fn()
 const mockValidateVideoFile = vi.fn()
-const mockFetchVideoStations = vi.fn()
+const mockFetchStations = vi.fn()
 
 vi.mock('../api/index.js', () => ({
   getAuthToken: vi.fn(() => 'test-token'),
@@ -36,7 +36,7 @@ vi.mock('../api/index.js', () => ({
   cancelVideoTask: (...args) => mockCancelVideoTask(...args),
   streamVideoProgress: (...args) => mockStreamVideoProgress(...args),
   validateVideoFile: (...args) => mockValidateVideoFile(...args),
-  fetchVideoStations: (...args) => mockFetchVideoStations(...args)
+  fetchStations: (...args) => mockFetchStations(...args)
 }))
 
 vi.stubGlobal('import_meta', {
@@ -88,10 +88,10 @@ const MOCK_TASKS = {
 }
 
 const MOCK_STATIONS = [
-  { id: 'WS-01', name: '工位 1' },
-  { id: 'WS-02', name: '工位 2' },
-  { id: 'WS-03', name: '工位 3' },
-  { id: 'WS-04', name: '工位 4' }
+  { id: 1, name: 'WS-01', worker: '张三', line: '1号线', shift: '早班' },
+  { id: 2, name: 'WS-02', worker: '李四', line: '1号线', shift: '早班' },
+  { id: 3, name: 'WS-03', worker: '王五', line: '2号线', shift: '中班' },
+  { id: 4, name: 'WS-04', worker: '赵六', line: '3号线', shift: '晚班' }
 ]
 
 function mountPage() {
@@ -119,11 +119,7 @@ describe('VideoAnalysis.vue', () => {
     setActivePinia(createPinia())
     mockValidateVideoFile.mockReturnValue({ valid: true })
     mockStreamVideoProgress.mockReturnValue({ close: vi.fn() })
-    mockFetchVideoStations.mockResolvedValue(MOCK_STATIONS)
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ data: MOCK_STATIONS })
-    })
+    mockFetchStations.mockResolvedValue(MOCK_STATIONS)
   })
 
   afterEach(() => {
@@ -426,23 +422,19 @@ describe('VideoAnalysis.vue', () => {
     wrapper.unmount()
   })
 
-  it('P2-2: station selector defaults to first station and passes station+shift to upload', async () => {
+  it('P2-2: selecting station auto-fills shift/line and passes them to upload', async () => {
     mockFetchVideoTasks.mockResolvedValue(MOCK_TASKS)
     mockUploadVideo.mockResolvedValue(MOCK_TASK_UPLOADED)
 
     const wrapper = mountPage()
     await flushPromises()
 
-    // Default station should be first from API (WS-01)
+    // No auto-default — starts empty
     const stationSelect = wrapper.find('.station-select')
-    expect(stationSelect.element.value).toBe('WS-01')
+    expect(stationSelect.element.value).toBe('')
 
-    // Change station to WS-03
+    // Select WS-03 — shift and line auto-fill via watch
     await stationSelect.setValue('WS-03')
-
-    // Change shift to afternoon
-    const shiftSelect = wrapper.findAll('.station-select')[1]
-    await shiftSelect.setValue('afternoon')
 
     // Drop a file
     const file = createFile('test.mp4')
@@ -451,8 +443,8 @@ describe('VideoAnalysis.vue', () => {
     })
     await flushPromises()
 
-    // Should pass WS-03, 'afternoon', and line to uploadVideo
-    expect(mockUploadVideo).toHaveBeenCalledWith(file, 'WS-03', 'afternoon', expect.any(String))
+    // Should pass WS-03, shift (中班), and line (2号线) to uploadVideo
+    expect(mockUploadVideo).toHaveBeenCalledWith(file, 'WS-03', '中班', '2号线')
 
     wrapper.unmount()
   })

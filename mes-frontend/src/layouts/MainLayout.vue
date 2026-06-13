@@ -317,7 +317,7 @@ const mainNav = [
     ]
   },
   {
-    path: '/equipment', title: '设备管理',
+    path: '/stations', title: '工位管理',
     elements: [
       { tag: 'circle', attrs: { cx: 12, cy: 12, r: 3 } },
       { tag: 'path', attrs: { d: 'M19.07 4.93l-1.41 1.41' } },

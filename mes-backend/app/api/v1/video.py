@@ -121,25 +121,6 @@ async def _publish_pipeline_command(
         return False
 
 
-# ── Stations ──────────────────────────────────────────────────────────
-
-
-@router.get("/stations")
-def list_stations(
-    _user: dict = Depends(require_auth),
-):
-    """Return available workstation list."""
-    return {
-        "code": 0,
-        "data": [
-            {"id": "WS-01", "name": "工位 1"},
-            {"id": "WS-02", "name": "工位 2"},
-            {"id": "WS-03", "name": "工位 3"},
-            {"id": "WS-04", "name": "工位 4"},
-        ],
-    }
-
-
 # ── Upload ────────────────────────────────────────────────────────────
 
 

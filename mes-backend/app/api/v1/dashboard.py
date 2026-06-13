@@ -28,7 +28,7 @@ from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.models.database import (
-    ProcessSegment, Equipment, Order, WorktimeRecord,
+    ProcessSegment, Station, Equipment, Order, WorktimeRecord,
 )
 from app.models.schemas import (
     ApiResponse, DashboardKpi, AiContext,
@@ -376,14 +376,15 @@ def station_timeline(
     """Get station timeline data for current shift.
 
     Returns per-station time breakdown by action category.
+    Data source: Station table (not Equipment).
     """
     now_sh = datetime.now(SHANGHAI_TZ)
     shift_start = now_sh.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
-    # Get equipment list as stations
-    stations = session.query(Equipment).order_by(Equipment.id).all()
+    # Get station list from Station table (no longer Equipment)
+    stations = session.query(Station).order_by(Station.id).all()
     if not stations:
-        # Fallback: infer stations from ProcessSegment.station_id if Equipment table is empty
+        # Fallback: infer stations from ProcessSegment.station_id if Station table is empty
         inferred_station_ids = [
             row[0] for row in session.query(ProcessSegment.station_id).distinct().all()
         ]
@@ -393,8 +394,8 @@ def station_timeline(
         pseudo_stations = []
         for idx, sid in enumerate(inferred_station_ids):
             pseudo_stations.append(
-                type("PseudoEquipment", (), {
-                    "id": idx + 1, "name": sid, "oee": 0.0
+                type("PseudoStation", (), {
+                    "id": idx + 1, "name": sid,
                 })()
             )
         stations = pseudo_stations
@@ -423,8 +424,8 @@ def station_timeline(
     types = {"work": "effective", "wait": "wait", "idle": "idle"}
 
     timeline = []
-    for eq in stations:
-        action_groups = station_action_map.get(eq.name, {})
+    for st in stations:
+        action_groups = station_action_map.get(st.name, {})
         total_ms = sum(action_groups.values())
 
         segments_list = []
@@ -438,9 +439,9 @@ def station_timeline(
             })
 
         timeline.append({
-            "id": eq.id,
-            "name": eq.name,
-            "oee": round(eq.oee, 4),
+            "id": st.id,
+            "name": st.name,
+            "oee": 0.0,
             "segments": segments_list,
         })
 

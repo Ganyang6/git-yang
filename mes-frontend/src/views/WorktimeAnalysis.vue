@@ -9,7 +9,7 @@
       <div class="flex gap-2 items-center">
         <select v-model="selectedStation" class="select" style="width: 140px" @change="loadData">
           <option value="all">全部工位</option>
-          <option v-for="s in metaStations" :key="s.value" :value="s.value">{{ s.label }}</option>
+          <option v-for="s in stations" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
         <select v-model="selectedShift" class="select" style="width: 120px" @change="loadData">
           <option v-for="s in metaShifts" :key="s.value" :value="s.value">{{ s.label }}</option>
@@ -334,13 +334,14 @@ import {
   downloadBlob,
   cleanupWorktimeData,
   calibrateWorktime,
-  fetchMeta
+  fetchMeta,
+  fetchStations
 } from '../api/index.js'
 import { ElMessageBox } from 'element-plus'
 import { useConfirm } from '../composables/useConfirm.js'
 import DOMPurify from 'dompurify'
 
-const metaStations = ref([])
+const stations = ref([])
 const metaShifts = ref([])
 
 const selectedStation = ref('all')
@@ -691,7 +692,10 @@ onMounted(async () => {
   // 不设硬编码 fallback：元数据加载失败时显示错误提示
   try {
     const meta = await fetchMeta()
-    metaStations.value = (meta.stations || []).map(s => ({ value: s.id, label: s.name }))
+    stations.value = (await fetchStations()).map(s => ({
+        value: s.name,
+        label: `编号${s.name} - ${s.worker}(${s.line}-${s.shift})`
+      }))
     metaShifts.value = (meta.shifts || []).map(s => ({ value: s.value, label: s.label }))
   } catch {
     errorMsg.value = '元数据加载失败，请刷新重试'

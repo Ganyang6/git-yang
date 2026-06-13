@@ -51,6 +51,12 @@ const routes = [
         meta: { title: '库存管理' }
       },
       {
+        path: 'stations',
+        name: 'Stations',
+        component: () => import('@/views/Stations.vue'),
+        meta: { title: '工位管理' }
+      },
+      {
         path: 'equipment',
         name: 'Equipment',
         component: () => import('@/views/Equipment.vue'),

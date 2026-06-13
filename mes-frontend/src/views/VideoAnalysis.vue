@@ -45,27 +45,24 @@
           <div class="station-selector">
             <label class="station-label">目标工位:</label>
             <select v-model="selectedStation" class="station-select" @click.stop>
-              <option value="" disabled>请选择工位</option>
-              <option v-for="s in stationOptions" :key="s.value" :value="s.value">
-                {{ s.label }} ({{ s.value }})
+              <option value="">选择工位</option>
+              <option v-for="s in stations" :key="s.id" :value="s.name">
+                编号{{ s.name }} - {{ s.worker }}({{ s.line }}-{{ s.shift }})
               </option>
             </select>
           </div>
           <div class="shift-selector">
             <label class="station-label">班次:</label>
-            <select v-model="selectedShift" class="station-select" @click.stop>
+            <select v-model="selectedShift" class="station-select" disabled>
               <option value="" disabled>请选择班次</option>
-              <option v-for="s in shiftOptions" :key="s.value" :value="s.value">
-                {{ s.label }}
-              </option>
+              <option v-for="sh in uniqueShifts" :key="sh" :value="sh">{{ sh }}</option>
             </select>
           </div>
           <div class="shift-selector">
             <label class="station-label">产线:</label>
-            <select v-model="selectedLine" class="station-select" @click.stop>
-              <option value="">全部产线</option>
-              <option value="line1">产线 A</option>
-              <option value="line2">产线 B</option>
+            <select v-model="selectedLine" class="station-select" disabled>
+              <option value="">产线</option>
+              <option v-for="l in uniqueLines" :key="l" :value="l">{{ l }}</option>
             </select>
           </div>
         </div>
@@ -198,14 +195,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   uploadVideo,
   fetchVideoTasks,
   cancelVideoTask,
   validateVideoFile,
   streamVideoProgress,
-  fetchVideoStations
+  fetchStations as apiFetchStations
 } from '../api/index.js'
 
 // -- State --
@@ -216,19 +213,25 @@ const isDragOver = ref(false)
 const uploadError = ref('')
 const fileInput = ref(null)
 const selectedStation = ref('')
-const stationOptions = ref([
-  { value: 'WS-01', label: '工位 1' },
-  { value: 'WS-02', label: '工位 2' },
-  { value: 'WS-03', label: '工位 3' },
-  { value: 'WS-04', label: '工位 4' }
-])
+const stations = ref([])
 const selectedShift = ref('morning')
 const selectedLine = ref('')
-const shiftOptions = [
-  { value: 'morning', label: '早班' },
-  { value: 'afternoon', label: '中班' },
-  { value: 'night', label: '晚班' }
-]
+
+// 监听工位变化，自动填充产线和班次
+watch(selectedStation, (val) => {
+  const station = stations.value.find(s => s.name === val)
+  if (station) {
+    selectedLine.value = station.line
+    selectedShift.value = station.shift
+  }
+})
+const uniqueLines = computed(() => {
+  return [...new Set(stations.value.map(s => s.line).filter(Boolean))]
+})
+
+const uniqueShifts = computed(() => {
+  return [...new Set(stations.value.map(s => s.shift).filter(Boolean))]
+})
 let closeSSE = null
 let pollTimer = null
 
@@ -407,16 +410,16 @@ function statusLabel(status) {
 // -- Lifecycle --
 async function fetchStations() {
   try {
-    const data = await fetchVideoStations()
-    stationOptions.value = (data || []).map(item => ({
-      value: item.id,
-      label: item.name
+    const data = await apiFetchStations()
+    stations.value = (data || []).map(item => ({
+      id: item.id,
+      name: item.name,
+      worker: item.worker,
+      line: item.line,
+      shift: item.shift
     }))
-    if (stationOptions.value.length > 0 && !selectedStation.value) {
-      selectedStation.value = stationOptions.value[0].value
-    }
   } catch {
-    // API 失败时保留初始 fallback 值
+    // API 失败时使用空列表
   }
 }
 

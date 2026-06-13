@@ -6,6 +6,10 @@
         <div class="page-subtitle">数据统计与生产绩效分析</div>
       </div>
       <div class="flex gap-2">
+        <select v-model="selectedStation" class="select" style="width: 180px" @change="loadPhase5Data">
+          <option value="all">全部工位</option>
+          <option v-for="s in stations" :key="s.value" :value="s.value">{{ s.label }}</option>
+        </select>
         <select v-model="period" class="select" style="width: 120px">
           <option value="week">本周</option>
           <option value="month">本月</option>
@@ -178,10 +182,13 @@ import {
   fetchTopCustomers,
   fetchLineBalanceFull,
   fetchBoxplotData,
-  fetchHeatmapData
+  fetchHeatmapData,
+  fetchStations
 } from '../api/index.js'
 
 const period = ref('month')
+const stations = ref([])
+const selectedStation = ref('all')
 const loading = ref(false)
 const kpiList = ref([])
 const topCustomers = ref([])
@@ -287,7 +294,7 @@ async function loadPhase5Data() {
 
   // Load boxplot data from real API
   try {
-    const boxResp = await fetchBoxplotData()
+    const boxResp = await fetchBoxplotData(selectedStation.value)
     if (boxResp && boxResp.stations && boxResp.stations.length > 0) {
       shiftData.value = boxResp
       await nextTick()
@@ -299,7 +306,7 @@ async function loadPhase5Data() {
 
   // Load heatmap data from real API
   try {
-    const heatResp = await fetchHeatmapData()
+    const heatResp = await fetchHeatmapData(selectedStation.value)
     if (heatResp && heatResp.stations && heatResp.stations.length > 0 && heatResp.data.length > 0) {
       therbligData.value = heatResp
       await nextTick()
@@ -703,7 +710,14 @@ watch(period, () => {
   loadData()
 })
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const raw = await fetchStations()
+    stations.value = raw.map(s => ({
+      value: s.name,
+      label: `编号${s.name} - ${s.worker}(${s.line}-${s.shift})`
+    }))
+  } catch { /* stations unavailable */ }
   loadData()
   window.addEventListener('resize', handleResize)
 })

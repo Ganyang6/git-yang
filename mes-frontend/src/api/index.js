@@ -557,6 +557,41 @@ export function deleteInventoryItem(code) {
   return del(`/api/inventory/${code}`)
 }
 
+// ─── 工位管理 ──────────────────────────────────────────────────────────────
+
+/**
+ * 获取工位列表
+ * @returns {Promise<Array<{ id, name, worker, line, shift }>>}
+ */
+export function fetchStations() {
+  return request('/api/stations').then(data => data?.items || data || [])
+}
+
+/**
+ * 新增工位
+ * @param {{ name, worker, line, shift }} data
+ */
+export function createStation(data) {
+  return post('/api/stations', data)
+}
+
+/**
+ * 更新工位（编号不可改）
+ * @param {number} id
+ * @param {{ worker, line, shift }} data
+ */
+export function updateStation(id, data) {
+  return put(`/api/stations/${id}`, data)
+}
+
+/**
+ * 删除工位
+ * @param {number} id
+ */
+export function deleteStation(id) {
+  return del(`/api/stations/${id}`)
+}
+
 // ─── 设备管理 ──────────────────────────────────────────────────────────────
 
 /**
@@ -802,14 +837,6 @@ export function streamVideoProgress(taskId, onProgress, options = {}) {
  */
 export function fetchMeta() {
   return request('/api/meta')
-}
-
-/**
- * 获取工位列表（视频分析用）
- * @returns {Promise<Array<{ id: string, name: string }>>}
- */
-export function fetchVideoStations() {
-  return request('/api/v1/video/stations')
 }
 
 // ─── 报表分析 ──────────────────────────────────────────────────────────────

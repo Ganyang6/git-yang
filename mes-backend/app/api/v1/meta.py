@@ -23,11 +23,12 @@ def get_meta(
     _user: dict = Depends(require_auth),
 ):
     """返回前端启动所需的元数据。"""
-    # 工位
-    stations = session.query(Equipment).order_by(Equipment.id).all()
+    # 工位（从 Station 表读取）
+    from app.models.database import Station
+    stations_q = session.query(Station).order_by(Station.name).all()
     stations_data = [
-        {"id": s.name, "name": s.name, "workshop": s.workshop}
-        for s in stations
+        {"name": s.name, "worker": s.worker, "line": s.line, "shift": s.shift}
+        for s in stations_q
     ]
 
     # 班次（从 config.yaml 读取）
