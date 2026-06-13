@@ -166,17 +166,17 @@
             <span
               class="badge"
               :class="
-                balanceSummary.balanceRate >= 85
+                (balanceSummary.balanceRate * 100) >= 85
                   ? 'badge-success'
-                  : balanceSummary.balanceRate >= 70
+                  : (balanceSummary.balanceRate * 100) >= 70
                     ? 'badge-warning'
                     : 'badge-danger'
               "
             >
               {{
-                balanceSummary.balanceRate >= 85
+                (balanceSummary.balanceRate * 100) >= 85
                   ? '优秀'
-                  : balanceSummary.balanceRate >= 70
+                  : (balanceSummary.balanceRate * 100) >= 70
                     ? '一般'
                     : '需改善'
               }}
@@ -193,7 +193,7 @@
         <div class="gauge-footer">
           <div class="gauge-stat">
             <div class="gauge-stat-value" style="color: #1a6ef5">
-              {{ balanceSummary ? balanceSummary.balanceRate + '%' : '--' }}
+              {{ balanceSummary ? Math.round(balanceSummary.balanceRate * 100) + '%' : '--' }}
             </div>
             <div class="gauge-stat-label">平衡率</div>
           </div>
@@ -240,53 +240,7 @@
       </div>
     </div>
 
-    <!-- 人机时间线 + 动素分布 -->
     <div class="charts-row">
-      <!-- 人机时间线 -->
-      <div class="card chart-card" style="flex: 1.4; min-width: 0">
-        <div class="chart-header">
-          <div>
-            <div class="chart-title">人机协作时间线</div>
-            <div class="chart-subtitle">当前班次 · 各工位人工/设备时间分配</div>
-          </div>
-          <router-link to="/line-balance" class="btn btn-ghost btn-sm">详细分析</router-link>
-        </div>
-        <div class="timeline-container">
-          <template v-if="loading">
-            <div v-for="i in 4" :key="i" class="timeline-row">
-              <div class="timeline-label skeleton-text" style="width: 40px; height: 12px"></div>
-              <div class="timeline-bar-wrap"><div class="skeleton-bar"></div></div>
-              <div style="width: 60px"></div>
-            </div>
-          </template>
-          <template v-else-if="stationTimeline && stationTimeline.length">
-            <div v-for="station in stationTimeline" :key="station.id" class="timeline-row">
-              <div class="timeline-label">{{ station.name }}</div>
-              <div class="timeline-bar-wrap">
-                <div
-                  v-for="seg in station.segments"
-                  :key="seg.type"
-                  class="timeline-seg"
-                  :class="`seg-${seg.type}`"
-                  :style="`width:${seg.pct}%`"
-                  :title="`${seg.label}: ${seg.time}s`"
-                ></div>
-              </div>
-              <div class="timeline-oee">OEE {{ station.oee }}%</div>
-            </div>
-          </template>
-          <div v-else class="chart-placeholder no-data-placeholder" style="height: 80px">
-            暂无时间线数据
-          </div>
-          <div class="timeline-legend">
-            <span class="tl-item seg-work">有效作业</span>
-            <span class="tl-item seg-wait">等待</span>
-            <span class="tl-item seg-machine">设备运行</span>
-            <span class="tl-item seg-idle">空闲</span>
-          </div>
-        </div>
-      </div>
-
       <!-- 动素分布饼图 -->
       <div class="card chart-card" style="width: 240px; flex-shrink: 0">
         <div class="chart-header">
@@ -465,7 +419,6 @@ import {
   fetchDashboardKpi,
   fetchLineBalanceSummary,
   fetchWorktimeTrend,
-  fetchStationTimeline,
   fetchTherbligDistribution,
   fetchRecentWorktime,
   fetchBottleneckDiagnosis,
@@ -497,7 +450,6 @@ const kpiRaw = ref(null)
 const balanceSummary = ref(null)
 const worktimeTrend = ref(null)
 const wsMetrics = ref({}) // P1-4: Separate data source for WebSocket real-time metrics
-const stationTimeline = ref(null)
 const thermData = ref(null)
 const recentWorktime = ref(null)
 const bottleneckDiag = ref(null)
@@ -522,10 +474,10 @@ const kpiCards = computed(() => {
     {
       key: 'utilization',
       label: '人工稼动率',
-      value: d ? d.utilization + '%' : null,
+      value: d ? Math.round(d.utilization * 100) + '%' : null,
       trend: d?.trends?.utilization ?? null,
       trendUp: d?.trends ? d.trends.utilization > 0 : false,
-      progress: d ? Math.round(d.utilization) : null,
+      progress: d ? Math.round(d.utilization * 100) : null,
       compareLabel: '较上班次',
       color: '#1a6ef5',
       iconSvg: SANITIZED_ICONS.utilization
@@ -533,10 +485,10 @@ const kpiCards = computed(() => {
     {
       key: 'stdtime',
       label: '标准工时达成率',
-      value: d ? d.stdtimeAchievement + '%' : null,
+      value: d ? Math.round(d.stdtimeAchievement * 100) + '%' : null,
       trend: d?.trends?.stdtimeAchievement ?? null,
       trendUp: d?.trends ? d.trends.stdtimeAchievement > 0 : false,
-      progress: d ? Math.round(d.stdtimeAchievement) : null,
+      progress: d ? Math.round(d.stdtimeAchievement * 100) : null,
       compareLabel: '较目标',
       color: '#10b981',
       iconSvg: SANITIZED_ICONS.stdtime
@@ -544,10 +496,10 @@ const kpiCards = computed(() => {
     {
       key: 'balance',
       label: '生产线平衡率',
-      value: d ? d.balanceRate + '%' : null,
+      value: d ? Math.round(d.balanceRate * 100) + '%' : null,
       trend: d?.trends?.balanceRate ?? null,
       trendUp: d?.trends ? d.trends.balanceRate > 0 : false,
-      progress: d ? Math.round(d.balanceRate) : null,
+      progress: d ? Math.round(d.balanceRate * 100) : null,
       compareLabel: '较昨日',
       color: '#6366f1',
       iconSvg: SANITIZED_ICONS.balance
@@ -575,19 +527,17 @@ async function loadAll() {
       fetchDashboardKpi(dateRange.value),
       fetchLineBalanceSummary(),
       fetchWorktimeTrend(7),
-      fetchStationTimeline(),
       fetchTherbligDistribution(),
       fetchRecentWorktime(8),
       fetchBottleneckDiagnosis(),
       fetchAnomalyEvents({ limit: 10 })
     ])
 
-    const [kpi, balance, trend, timeline, therm, recent, bottleneck, anomaly] = results
+    const [kpi, balance, trend, therm, recent, bottleneck, anomaly] = results
 
     if (kpi.status === 'fulfilled') kpiRaw.value = kpi.value
     if (balance.status === 'fulfilled') balanceSummary.value = balance.value
     if (trend.status === 'fulfilled') worktimeTrend.value = trend.value
-    if (timeline.status === 'fulfilled') stationTimeline.value = timeline.value
     if (therm.status === 'fulfilled') thermData.value = therm.value
     if (recent.status === 'fulfilled') recentWorktime.value = recent.value
     if (bottleneck.status === 'fulfilled') bottleneckDiag.value = bottleneck.value
@@ -696,13 +646,13 @@ function onWsMessage(data) {
       kpiRaw.value = {
         ...kpiRaw.value,
         utilization: metrics.human_utilization != null
-          ? Math.round(metrics.human_utilization * 100)
+          ? metrics.human_utilization
           : kpiRaw.value.utilization,
         stdtimeAchievement: metrics.stdtime_achievement != null
-          ? Math.round(metrics.stdtime_achievement * 100)
+          ? metrics.stdtime_achievement
           : kpiRaw.value.stdtimeAchievement,
         balanceRate: metrics.line_balance_rate != null
-          ? Math.round(metrics.line_balance_rate * 100)
+          ? metrics.line_balance_rate
           : kpiRaw.value.balanceRate,
         waitLossMinutes: metrics.wait_ratio != null && metrics.shift_total_seconds
           ? (metrics.wait_ratio >= 0 && metrics.wait_ratio <= 1
@@ -1084,88 +1034,6 @@ function onSseEvent(event) {
   width: 1px;
   height: 32px;
   background: var(--gray-200);
-}
-
-/* Timeline */
-.timeline-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.timeline-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.timeline-label {
-  width: 52px;
-  font-size: var(--font-size-xs);
-  color: var(--gray-600);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.timeline-bar-wrap {
-  flex: 1;
-  height: 22px;
-  border-radius: 4px;
-  overflow: hidden;
-  display: flex;
-  background: var(--gray-100);
-}
-.timeline-seg {
-  height: 100%;
-  transition: width 0.3s ease;
-  cursor: default;
-}
-.seg-work {
-  background: #1a6ef5;
-}
-.seg-wait {
-  background: #f59e0b;
-}
-.seg-machine {
-  background: #10b981;
-}
-.seg-idle {
-  background: #e5e7eb;
-}
-.timeline-oee {
-  width: 60px;
-  font-size: var(--font-size-xs);
-  color: var(--gray-500);
-  text-align: right;
-  flex-shrink: 0;
-}
-.timeline-legend {
-  display: flex;
-  gap: 14px;
-  padding-top: 6px;
-}
-.tl-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-xs);
-  color: var(--gray-500);
-}
-.tl-item::before {
-  content: '';
-  display: inline-block;
-  width: 12px;
-  height: 8px;
-  border-radius: 2px;
-}
-.tl-item.seg-work::before {
-  background: #1a6ef5;
-}
-.tl-item.seg-wait::before {
-  background: #f59e0b;
-}
-.tl-item.seg-machine::before {
-  background: #10b981;
-}
-.tl-item.seg-idle::before {
-  background: #e5e7eb;
 }
 
 /* Therblig Legend */

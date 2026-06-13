@@ -264,18 +264,36 @@ class TherbligOptimizationPrompt(PromptTemplate):
             parts.append("\nTherblig Distribution:")
             parts.append("  | Symbol | Name | Count | Total MOD | Waste |")
             parts.append("  |--------|------|-------|-----------|-------|")
-            for element, values in stats.items():
-                if isinstance(values, dict):
-                    count = values.get("count", 0)
-                    mod = values.get("total_mod", 0.0)
-                    is_waste = values.get("is_waste", False)
+
+            if isinstance(stats, list):
+                # 数组格式：[{symbol, name, mod, actual, pct, isWaste}, ...]
+                for item in stats:
+                    element = item.get("name") or item.get("symbol", "?")
+                    symbol = item.get("symbol", "?")
+                    mod = float(item.get("mod", 0) or 0)
+                    count = int(item.get("actual", 0) or 0)  # use actual as count approximation
+                    is_waste = bool(item.get("isWaste", False))
                     waste_flag = "Yes" if is_waste else ""
                     total_mod += mod
                     if is_waste:
                         waste_mod += mod
                     parts.append(
-                        f"  | {values.get('symbol', '?')} | {element} | {count} | {mod:.1f} | {waste_flag} |"
+                        f"  | {symbol} | {element} | {count} | {mod:.1f} | {waste_flag} |"
                     )
+            else:
+                # dict 格式：{name: {symbol, count, total_mod, is_waste}, ...}
+                for element, values in stats.items():
+                    if isinstance(values, dict):
+                        count = values.get("count", 0)
+                        mod = values.get("total_mod", 0.0)
+                        is_waste = values.get("is_waste", False)
+                        waste_flag = "Yes" if is_waste else ""
+                        total_mod += mod
+                        if is_waste:
+                            waste_mod += mod
+                        parts.append(
+                            f"  | {values.get('symbol', '?')} | {element} | {count} | {mod:.1f} | {waste_flag} |"
+                        )
 
             waste_ratio = waste_mod / total_mod if total_mod > 0 else 0
             parts.append(f"\n  Total MOD: {total_mod:.1f}")

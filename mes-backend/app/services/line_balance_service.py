@@ -12,10 +12,10 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.database import ProcessSegment
+from app.models.database import ProcessSegment, WorktimeRecord
 
 
 def get_station_metrics(
@@ -37,22 +37,27 @@ def get_station_metrics(
     Returns:
         List of dicts with keys: name, time (ms), count.
     """
+    range_hours = range_hours or 168.0  # default 7 days
     if range_start is None:
         now = datetime.now(timezone.utc)
         range_start = now - timedelta(hours=range_hours)
 
     query = session.query(
-        ProcessSegment.station_id,
-        func.avg(ProcessSegment.duration_ms).label("avg_duration"),
-        func.count(ProcessSegment.id).label("seg_count"),
+        WorktimeRecord.station_id,
+        func.avg(WorktimeRecord.actual_ms).label("avg_duration"),
+        func.count(WorktimeRecord.id).label("seg_count"),
     ).filter(
-        ProcessSegment.start_time >= range_start,
-        ProcessSegment.action != "idle",
+        WorktimeRecord.created_at >= range_start,
     )
     if line:
-        query = query.filter(ProcessSegment.line == line)
+        # WorktimeRecord has no line column; use subquery via ProcessSegment
+        subq = select(ProcessSegment.station_id).filter(
+            ProcessSegment.line == line,
+            ProcessSegment.start_time >= range_start,
+        ).distinct()
+        query = query.filter(WorktimeRecord.station_id.in_(subq))
 
-    results = query.group_by(ProcessSegment.station_id).all()
+    results = query.group_by(WorktimeRecord.station_id).all()
 
     station_data = []
     for r in results:

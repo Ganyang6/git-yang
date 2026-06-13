@@ -50,17 +50,18 @@ def _compute_line_balance_context(
     Returns a dict with keys: station_data, stations, lbr, si, bottleneck,
     takt_time, avg_d.
     """
-    station_data = get_station_metrics(session, line=line, range_hours=range_hours)
+    station_data = get_station_metrics(session, range_hours=168.0, line=line)
     n = len(station_data) if station_data else 1
     avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
 
     metrics = compute_balance_metrics(station_data)
     stations = metrics["stations"]
 
-    # Takt time = available time / demand
+    # Takt time = available time / demand (using total order quantity, not completed)
+    total_demand = session.query(func.sum(Order.quantity)).scalar() or 0
     completed_qty = session.query(func.sum(Order.completed_qty)).scalar() or 0
     shift_seconds = 28800.0
-    takt_time = shift_seconds / completed_qty if completed_qty > 0 else 0.0
+    takt_time = shift_seconds / total_demand if total_demand > 0 else 0.0
 
     return {
         "station_data": station_data,
@@ -69,6 +70,7 @@ def _compute_line_balance_context(
         "si": metrics["smoothIndex"],
         "bottleneck": metrics["bottleneckStation"],
         "takt_time": takt_time,
+        "total_demand": total_demand,
         "completed_qty": completed_qty,
         "avg_d": avg_d,
         "n": n,
@@ -90,6 +92,8 @@ def line_balance_summary(
             "bottleneckStation": ctx["bottleneck"],
             "stations": ctx["stations"],
             "taktTime": round(ctx["takt_time"], 1),
+            "dailyDemand": ctx["total_demand"],
+            "dailyCompleted": ctx["completed_qty"],
         }),
         timestamp=time.time(),
     )
@@ -97,13 +101,37 @@ def line_balance_summary(
 
 @router.get("/full")
 def line_balance_full(
-    line: str = Query("line1"),
+    line: str = Query(""),
     session: Session = Depends(get_db_session),
     _user: dict = Depends(require_read_all),
 ):
     """Get complete line balance data with ECRS suggestions."""
     ctx = _compute_line_balance_context(session, line=line)
     stations = ctx["stations"]
+
+    # Compute per-station efficiency (effective work ratio)
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import case as sa_case
+    from app.models.database import ProcessSegment
+
+    range_start = ctx.get("_range_start") or (datetime.now(timezone.utc) - timedelta(hours=8))
+    eff_rows = session.query(
+        ProcessSegment.station_id,
+        func.sum(ProcessSegment.duration_ms).label("total_ms"),
+        func.sum(sa_case((ProcessSegment.action.in_(["wait", "idle"]), ProcessSegment.duration_ms), else_=0)).label("waste_ms"),
+    ).filter(
+        ProcessSegment.start_time >= range_start,
+    ).group_by(ProcessSegment.station_id).all()
+
+    eff_map = {}
+    for row in eff_rows:
+        total = float(row.total_ms or 0)
+        waste = float(row.waste_ms or 0)
+        if total > 0:
+            eff_map[row.station_id] = round((total - waste) / total, 4)
+    for s in stations:
+        s["efficiency"] = eff_map.get(s["name"], 0.0)
+
     n = ctx["n"]
     avg_d = ctx["avg_d"]
     si = ctx["si"]
@@ -115,6 +143,12 @@ def line_balance_full(
     # Lost capacity = (max - avg) * N stations
     max_d = max((s["time"] for s in stations), default=0)
     lost_capacity = (max_d - avg_d) * n if stations else 0.0
+
+    # 每日产量（基于瓶颈节拍）
+    shift_seconds = 28800.0
+    daily_output = int(shift_seconds / (max_d if max_d > 0 else 1)) if max_d > 0 else 0
+    # 每日损失时间（秒）
+    daily_lost_time = round((max_d - avg_d) * daily_output, 1) if max_d > 0 else 0.0
 
     # Lost value estimation (using average MOD rate)
     mod_rate = 0.129  # seconds per MOD
@@ -215,9 +249,11 @@ def line_balance_full(
             "balanceRate": lbr,
             "smoothIndex": si,
             "taktTime": round(takt_time, 1),
-            "dailyDemand": completed_qty if completed_qty > 0 else 0,
+            "dailyDemand": ctx["total_demand"],
+            "dailyCompleted": ctx["completed_qty"],
             "bottleneck": bottleneck,
             "lostCapacity": round(lost_capacity, 1),
+            "dailyLostCapacity": daily_lost_time,
             "lostValue": round(lost_value, 1),
             "stations": stations,
             "causalRules": mapped_causal,

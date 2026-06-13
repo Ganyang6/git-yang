@@ -39,6 +39,7 @@ class TestStationMetricsReturnsSeconds:
         mock_row.seg_count = 10
 
         mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
         mock_query.filter.return_value = mock_query
         mock_query.group_by.return_value = mock_query
         mock_query.all.return_value = [mock_row]
@@ -75,6 +76,7 @@ class TestStationMetricsReturnsSeconds:
             rows.append(row)
 
         mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
         mock_query.filter.return_value = mock_query
         mock_query.group_by.return_value = mock_query
         mock_query.all.return_value = rows
@@ -105,6 +107,7 @@ class TestStationMetricsReturnsSeconds:
         mock_row.seg_count = 1
 
         mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
         mock_query.filter.return_value = mock_query
         mock_query.group_by.return_value = mock_query
         mock_query.all.return_value = [mock_row]

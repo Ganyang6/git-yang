@@ -367,6 +367,7 @@ class StationInfo(BaseModel):
     name: str
     time: float = Field(ge=0.0)
     isBottleneck: bool = False
+    efficiency: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class LineBalanceSummary(BaseModel):
@@ -376,6 +377,8 @@ class LineBalanceSummary(BaseModel):
     bottleneckStation: str = ""
     stations: List[StationInfo] = Field(default_factory=list)
     taktTime: float = Field(default=0.0, ge=0.0)
+    dailyDemand: int = Field(default=0, ge=0)
+    dailyCompleted: int = Field(default=0, ge=0)
 
     @model_validator(mode="before")
     @classmethod
@@ -419,8 +422,10 @@ class LineBalanceFull(BaseModel):
     smoothIndex: float = Field(default=0.0, ge=0.0)
     taktTime: float = Field(default=0.0, ge=0.0)
     dailyDemand: int = Field(default=0, ge=0)
+    dailyCompleted: int = Field(default=0, ge=0)
     bottleneck: str = ""
     lostCapacity: float = Field(default=0.0, ge=0.0)
+    dailyLostCapacity: float = Field(default=0.0, ge=0.0)
     lostValue: float = Field(default=0.0, ge=0.0)
     stations: List[StationInfo] = Field(default_factory=list)
     causalRules: List[CausalRule] = Field(default_factory=list)
@@ -431,7 +436,7 @@ class LineBalanceFull(BaseModel):
     def coerce_none_values(cls, data):
         """Coerce None values to defaults."""
         if isinstance(data, dict):
-            for key in ("balanceRate", "smoothIndex", "taktTime", "lostCapacity", "lostValue"):
+            for key in ("balanceRate", "smoothIndex", "taktTime", "lostCapacity", "dailyLostCapacity", "lostValue"):
                 if data.get(key) is None:
                     data[key] = 0.0
             for key in ("bottleneck",):
@@ -477,7 +482,7 @@ class TopCustomer(BaseModel):
     qty: int = Field(default=0, ge=0)
     amount: float = Field(default=0.0, ge=0.0)
     share: float = Field(default=0.0, ge=0.0, le=100.0)
-    trend: str = ""
+    trend: float = 0.0
 
 
 # -- Quality Check --

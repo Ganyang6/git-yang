@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.models.database import (
     get_session, _engine_cache,
-    ProcessSegment, Equipment,
+    ProcessSegment, Equipment, WorktimeRecord,
 )
 from app.models.schemas import ActionLabel
 
@@ -77,14 +77,35 @@ def seed_two_lines(client, test_db_url):
 
     now = datetime.now(timezone.utc)
 
+    # Create WorktimeRecord entries (needed by get_station_metrics JOIN)
+    wr1 = WorktimeRecord(
+        operation="ASSEMBLE", station_id="WS-01",
+        actual_ms=5000.0, standard_ms=5000.0, efficiency=1.0,
+        mod_total=38.0, shift="morning",
+    )
+    wr2 = WorktimeRecord(
+        operation="REACH", station_id="WS-02",
+        actual_ms=3000.0, standard_ms=3000.0, efficiency=1.0,
+        mod_total=23.0, shift="morning",
+    )
+    wr3 = WorktimeRecord(
+        operation="MOVE", station_id="AS-01",
+        actual_ms=8000.0, standard_ms=8000.0, efficiency=1.0,
+        mod_total=62.0, shift="morning",
+    )
+    session.add_all([wr1, wr2, wr3])
+    session.flush()
+
     # Line 1 segments (should be included when ?line=line1)
     segs_line1 = [
         ProcessSegment(station_id="WS-01", camera_id="cam_0", line="line1",
             action=ActionLabel.ASSEMBLE.value, duration_ms=5000.0,
+            worktime_record_id=wr1.id,
             start_time=now - timedelta(hours=2), end_time=now - timedelta(hours=1, minutes=59),
             confidence=0.9, shift="morning"),
         ProcessSegment(station_id="WS-02", camera_id="cam_0", line="line1",
             action=ActionLabel.REACH.value, duration_ms=3000.0,
+            worktime_record_id=wr2.id,
             start_time=now - timedelta(hours=2), end_time=now - timedelta(hours=1, minutes=59),
             confidence=0.9, shift="morning"),
     ]
@@ -94,6 +115,7 @@ def seed_two_lines(client, test_db_url):
     segs_line2 = [
         ProcessSegment(station_id="AS-01", camera_id="cam_0", line="line2",
             action=ActionLabel.MOVE.value, duration_ms=8000.0,
+            worktime_record_id=wr3.id,
             start_time=now - timedelta(hours=2), end_time=now - timedelta(hours=1, minutes=59),
             confidence=0.9, shift="morning"),
     ]

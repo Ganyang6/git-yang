@@ -418,7 +418,7 @@ const summaryCards = computed(() => {
 const activeDetail = ref(null)  // 存储 fetchTherbligDetail 的完整返回
 
 const efficiency = computed(() => activeDetail.value?.efficiency ?? null)
-const efficiencyPct = computed(() => efficiency.value != null ? Math.round(efficiency.value * 100) : null)
+const efficiencyPct = computed(() => efficiency.value != null ? Math.round(efficiency.value) : null)
 const standardTime = computed(() => activeDetail.value?.standardTime ?? null)
 const actualVsStd = computed(() => efficiencyPct.value != null ? efficiencyPct.value : '--')
 
@@ -558,10 +558,25 @@ async function requestEcrsAnalysis() {
   ecrsResult.value = null
 
   try {
+    // 打包 therblig 数据
+    const therbligStats = (thermRows.value || []).map(t => ({
+      symbol: t.symbol,
+      name: t.name,
+      mod: t.mod,
+      actual: t.actual ?? t.actualMs ?? t.actual_ms,
+      pct: t.pct,
+      isWaste: t.isWaste ?? t.is_waste ?? false,
+    }))
+
     const res = await submitAiTask('therblig_optimization', {
-      operation_id: activeRecord.value.id,
-      station: activeRecord.value.station,
-      operation: activeRecord.value.operation
+      analysis_type: 'therblig_optimization',
+      station_id: selectedStation.value,
+      context_data: {
+        operation_id: activeRecord.value.id,
+        operation: activeRecord.value.operation,
+        therblig_stats: therbligStats,
+        total_actual_ms: activeRecord.value?.actual || 0,
+      }
     })
     ecrsTaskId.value = res.task_id
     startEcrsPolling(res.task_id)

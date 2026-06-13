@@ -37,6 +37,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
+def _get_period_start(period: str) -> datetime:
+    """Compute the start datetime for a given period filter."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    if period == "week":
+        return now - timedelta(days=7)
+    elif period == "month":
+        return now - timedelta(days=30)
+    elif period == "quarter":
+        return now - timedelta(days=90)
+    else:  # today
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 
 
 @router.get("/kpi")
@@ -60,16 +74,16 @@ def report_kpi(
 
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%d")
+    period_start = _get_period_start(period)
 
-    # Compute HUR from ProcessSegment within the same period
+    # Compute HUR from ProcessSegment within the period
     from app.models.database import ProcessSegment
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     seg_stats = session.query(
         func.coalesce(func.sum(ProcessSegment.duration_ms), 0).label("total_ms"),
         func.coalesce(func.sum(case((ProcessSegment.action == "wait", ProcessSegment.duration_ms), else_=0)), 0).label("wait_ms"),
         func.coalesce(func.sum(case((ProcessSegment.action == "idle", ProcessSegment.duration_ms), else_=0)), 0).label("idle_ms"),
     ).filter(
-        ProcessSegment.start_time >= today_start,
+        ProcessSegment.start_time >= period_start,
     ).first()
 
     total_ms = float(seg_stats.total_ms)
@@ -90,6 +104,8 @@ def report_kpi(
         func.sum(case((Order.status == OrderStatus.completed.value, 1), else_=0)).label("completed_orders"),
         func.sum(Order.completed_qty).label("total_output"),
         func.sum(Order.quantity).label("total_qty"),
+    ).filter(
+        Order.created_at >= period_start,
     ).first()
 
     total_orders = int(row.total_orders or 0)
@@ -102,6 +118,7 @@ def report_kpi(
         Order.status == OrderStatus.completed.value,
         Order.due_date != "",
         Order.due_date >= now_str,
+        Order.created_at >= period_start,
     ).scalar() or 0
 
     completion_rate = (completed_orders / total_orders) if total_orders > 0 else 0.0
@@ -252,6 +269,11 @@ def export_worktime_pdf(
     # Filter by station
     if station_id != "all":
         query = query.filter(ProcessSegment.station_id == station_id)
+
+    # Filter by period
+    if period != "all":
+        period_start = _get_period_start(period)
+        query = query.filter(ProcessSegment.start_time >= period_start)
 
     segments = query.order_by(ProcessSegment.start_time.desc()).limit(500).all()
 
@@ -470,30 +492,60 @@ def top_customers(
 ):
     """Get top customer ranking by order contribution.
 
-    Returns customer name, order count, quantity, and percentage share.
+    Returns customer name, order count, quantity, percentage share,
+    and period-over-period trend.
     """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    period_start = _get_period_start(period)
+
+    # Query current period top customers
     results = session.query(
+        Customer.id,
         Customer.name,
         func.count(Order.id).label("order_count"),
         func.sum(Order.quantity).label("total_qty"),
-    ).join(Order, Order.customer_id == Customer.id).group_by(
+    ).join(Order, Order.customer_id == Customer.id).filter(
+        Order.created_at >= period_start,
+    ).group_by(
         Customer.id
     ).order_by(func.sum(Order.quantity).desc()).limit(10).all()
 
     if not results:
         return ApiResponse(data=[], timestamp=time.time())
 
+    # Compute previous period for trend (same duration, shifted back)
+    period_duration = now - period_start
+    prev_period_start = period_start - period_duration
+
+    customer_ids = [r.id for r in results]
+
+    # Batch query previous period qty
+    prev_rows = session.query(
+        Order.customer_id,
+        func.sum(Order.quantity).label("prev_qty"),
+    ).filter(
+        Order.customer_id.in_(customer_ids),
+        Order.created_at >= prev_period_start,
+        Order.created_at < period_start,
+    ).group_by(Order.customer_id).all()
+    prev_map = {r.customer_id: float(r.prev_qty or 0) for r in prev_rows}
+
     total_qty = sum(r.total_qty or 0 for r in results)
-    items = [
-        validate_response_data(TopCustomer, {
-            "name": r.name,
-            "orders": r.order_count or 0,
-            "qty": int(r.total_qty or 0),
-            "amount": float(r.total_qty or 0),
-            "share": round(float(r.total_qty or 0) / total_qty * 100, 2) if total_qty > 0 else 0,
-            "trend": "",
-        })
-        for i, r in enumerate(results)
-    ]
+    items = []
+    for r in results:
+        current_qty = float(r.total_qty or 0)
+        prev_qty = prev_map.get(r.id, 0)
+        trend = round((current_qty - prev_qty) / prev_qty * 100, 1) if prev_qty > 0 else 0
+        items.append(
+            validate_response_data(TopCustomer, {
+                "name": r.name,
+                "orders": r.order_count or 0,
+                "qty": int(current_qty),
+                "share": round(current_qty / total_qty * 100, 2) if total_qty > 0 else 0,
+                "trend": trend,
+            })
+        )
 
     return ApiResponse(data=items, timestamp=time.time())

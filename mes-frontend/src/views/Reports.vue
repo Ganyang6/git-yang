@@ -6,16 +6,12 @@
         <div class="page-subtitle">数据统计与生产绩效分析</div>
       </div>
       <div class="flex gap-2">
-        <select v-model="selectedStation" class="select" style="width: 180px" @change="loadPhase5Data">
-          <option value="all">全部工位</option>
-          <option v-for="s in stations" :key="s.value" :value="s.value">{{ s.label }}</option>
-        </select>
         <select v-model="period" class="select" style="width: 120px">
           <option value="week">本周</option>
           <option value="month">本月</option>
           <option value="quarter">本季度</option>
         </select>
-        <button class="btn btn-outline btn-sm" disabled title="导出功能开发中">
+        <button class="btn btn-outline btn-sm" @click="handleExport">
           <svg
             width="14"
             height="14"
@@ -111,7 +107,6 @@
               <th>客户名称</th>
               <th>订单数</th>
               <th>产品数量(件)</th>
-              <th>订单数量</th>
               <th>占比</th>
               <th>趋势</th>
             </tr>
@@ -124,7 +119,6 @@
               <td class="text-sm font-medium">{{ row.name }}</td>
               <td class="text-sm">{{ row.orders }}</td>
               <td class="text-sm font-medium">{{ row.qty.toLocaleString() }}</td>
-              <td class="text-sm font-medium" style="color: var(--primary)">{{ row.amount }}</td>
               <td>
                 <div class="flex items-center gap-2">
                   <div class="progress progress-primary" style="width: 80px">
@@ -182,13 +176,10 @@ import {
   fetchTopCustomers,
   fetchLineBalanceFull,
   fetchBoxplotData,
-  fetchHeatmapData,
-  fetchStations
+  fetchHeatmapData
 } from '../api/index.js'
 
 const period = ref('month')
-const stations = ref([])
-const selectedStation = ref('all')
 const loading = ref(false)
 const kpiList = ref([])
 const topCustomers = ref([])
@@ -294,7 +285,7 @@ async function loadPhase5Data() {
 
   // Load boxplot data from real API
   try {
-    const boxResp = await fetchBoxplotData(selectedStation.value)
+    const boxResp = await fetchBoxplotData()
     if (boxResp && boxResp.stations && boxResp.stations.length > 0) {
       shiftData.value = boxResp
       await nextTick()
@@ -306,7 +297,7 @@ async function loadPhase5Data() {
 
   // Load heatmap data from real API
   try {
-    const heatResp = await fetchHeatmapData(selectedStation.value)
+    const heatResp = await fetchHeatmapData()
     if (heatResp && heatResp.stations && heatResp.stations.length > 0 && heatResp.data.length > 0) {
       therbligData.value = heatResp
       await nextTick()
@@ -438,7 +429,10 @@ function renderRadarChart(lbData) {
   // Compute per-station metrics (normalized to 0-100, using real backend API data)
   const seriesData = stations.slice(0, 5).map((st) => {
     const utilization = Math.round(Math.min((st.time / taktTime) * 100, 100))
-    const effectiveRatio = Math.round(Math.min(completionRate, 100))
+    const stationData = lbData?.stations?.find(s => s.name === st.name)
+  const effectiveRatio = stationData?.efficiency
+    ? Math.round(Math.min(stationData.efficiency * 100, 100))
+    : Math.round(Math.min(completionRate, 100))
     const bottleneckIndex = Math.round((1 - balanceRate) * 100)
     return {
       value: [utilization, effectiveRatio, bottleneckIndex],
@@ -698,6 +692,34 @@ async function renderHeatmapChart(apiData) {
   })
 }
 
+async function handleExport() {
+  const p = period.value
+
+  // 从 localStorage 获取 JWT token
+  const token = localStorage.getItem('mes_auth_token') || ''
+  const headers = { 'Authorization': 'Bearer ' + token }
+
+  // 工时 PDF
+  const worktimeResp = await fetch('/api/reports/worktime/pdf?period=' + p, { headers })
+  const worktimeBlob = await worktimeResp.blob()
+  const worktimeUrl = URL.createObjectURL(worktimeBlob)
+  const a1 = document.createElement('a')
+  a1.href = worktimeUrl
+  a1.download = '工时报表_' + p + '.pdf'
+  a1.click()
+  URL.revokeObjectURL(worktimeUrl)
+
+  // 线平衡 PDF
+  const lbResp = await fetch('/api/reports/line-balance/pdf?period=' + p, { headers })
+  const lbBlob = await lbResp.blob()
+  const lbUrl = URL.createObjectURL(lbBlob)
+  const a2 = document.createElement('a')
+  a2.href = lbUrl
+  a2.download = '线平衡报表_' + p + '.pdf'
+  a2.click()
+  URL.revokeObjectURL(lbUrl)
+}
+
 function handleResize() {
   barChartInstance?.resize()
   pieChartInstance?.resize()
@@ -711,13 +733,6 @@ watch(period, () => {
 })
 
 onMounted(async () => {
-  try {
-    const raw = await fetchStations()
-    stations.value = raw.map(s => ({
-      value: s.name,
-      label: `编号${s.name} - ${s.worker}(${s.line}-${s.shift})`
-    }))
-  } catch { /* stations unavailable */ }
   loadData()
   window.addEventListener('resize', handleResize)
 })
