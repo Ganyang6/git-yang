@@ -90,6 +90,19 @@ def save_segment(
 
     therblig = map_action_to_therblig(event.action)
 
+    # Look up line from Station table
+    from app.models.database import Station
+    station = session.query(Station).filter(Station.name == event.station_id).first()
+    line = station.line if station else ""
+
+    # Layer 1: Clamp negative duration_ms to 0 to prevent 500 errors downstream
+    if event.duration_ms is not None and event.duration_ms < 0:
+        logger.warning(
+            "负值duration_ms被截断: %.2fms, station=%s, action=%s",
+            event.duration_ms, event.station_id, event.action.value,
+        )
+        event.duration_ms = 0.0
+
     segment = ProcessSegment(
         camera_id=event.camera_id,
         station_id=event.station_id,
@@ -100,6 +113,7 @@ def save_segment(
         duration_ms=event.duration_ms,
         confidence=event.confidence,
         shift=shift.value,
+        line=line,
     )
     session.add(segment)
     session.commit()
@@ -174,10 +188,13 @@ def aggregate_segments(
 
     segments = query.order_by(ProcessSegment.start_time).all()
 
-    # Group by action
-    groups: Dict[str, List[ProcessSegment]] = {}
+    # Group by (action, station_id) — important: when station_id is None,
+    # we must group by station_id as well so each station gets its own
+    # WorktimeRecord instead of all being merged into "default".
+    groups: Dict[tuple, List[ProcessSegment]] = {}
     for seg in segments:
-        key = seg.action
+        actual_station = seg.station_id or "default"
+        key = (seg.action, actual_station)
         if key not in groups:
             groups[key] = []
         groups[key].append(seg)
@@ -190,15 +207,15 @@ def aggregate_segments(
         .filter(WorktimeRecord.shift == shift)
         .all()
     )
-    existing_map: Dict[str, WorktimeRecord] = {}
+    existing_map: Dict[tuple, WorktimeRecord] = {}
     for rec in existing_records:
         key = (rec.operation, rec.station_id or "default")
         existing_map[key] = rec
 
     records = []
 
-    for action, segs in groups.items():
-        total_actual_ms = sum(s.duration_ms for s in segs)
+    for (action, actual_station), segs in groups.items():
+        total_actual_ms = sum(max(0, s.duration_ms or 0) for s in segs)
         total_actual_s = total_actual_ms / 1000.0
 
         # Compute standard time from Therblig MOD
@@ -214,7 +231,7 @@ def aggregate_segments(
         operation_name = _action_to_operation_name(action_enum)
 
         # Find or create worktime record (P1 #48: use preloaded map)
-        lookup_key = (operation_name, station_id or "default")
+        lookup_key = (operation_name, actual_station)
         existing = existing_map.get(lookup_key)
 
         if existing:
@@ -227,7 +244,7 @@ def aggregate_segments(
         else:
             record = WorktimeRecord(
                 operation=operation_name,
-                station_id=station_id or "default",
+                station_id=actual_station,
                 actual_ms=total_actual_ms,
                 standard_ms=standard_ms,
                 efficiency=efficiency,
@@ -262,11 +279,12 @@ def aggregate_segments(
             therblig = map_action_to_therblig(ActionLabel(action_value))
         except ValueError:
             continue
-        segs_for_action = groups.get(action_value, [])
+        # Look up the right segments for this record: (action, station_id)
+        segs_for_action = groups.get((action_value, record.station_id), [])
         if not segs_for_action:
             continue
         # Wrap delete+rebuild in savepoint so partial failures don't lose data
-        total_actual_ms = sum(s.duration_ms for s in segs_for_action)
+        total_actual_ms = sum(max(0, s.duration_ms or 0) for s in segs_for_action)
         try:
             with session.begin_nested():
                 session.query(TherbligDetail).filter_by(
@@ -278,7 +296,7 @@ def aggregate_segments(
                         symbol=therblig.symbol.value,
                         name=therblig.name,
                         mod=therblig.mod_value,
-                        actual_ms=seg.duration_ms,
+                        actual_ms=max(0, seg.duration_ms or 0),
                         pct=(seg.duration_ms / total_actual_ms * 100) if total_actual_ms > 0 else 0.0,
                         is_waste=therblig.is_waste,
                     )

@@ -490,10 +490,15 @@ const stationDisplayMap = computed(() => {
 
 function getStationDisplayName(stationId) {
   if (!stationId || !stationsMeta.value.length) return stationId
-  // Extract station number from station_id (e.g., "WS-01" → "1")
+  // 精确匹配优先：先用完整 stationId 查询
+  let info = stationDisplayMap.value[stationId]
+  if (info) {
+    return `编号${info.name} - ${info.worker}(${info.line}-${info.shift})`
+  }
+  // 降级：提取数字后缀匹配（如 "w1" → "1"）
   const match = stationId.match(/(\d+)$/)
   const num = match ? String(parseInt(match[1], 10)) : stationId
-  const info = stationDisplayMap.value[num]
+  info = stationDisplayMap.value[num]
   if (info) {
     return `编号${info.name} - ${info.worker}(${info.line}-${info.shift})`
   }

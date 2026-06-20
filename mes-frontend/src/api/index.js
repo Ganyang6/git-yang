@@ -239,8 +239,10 @@ export function fetchTherbligDetail(operationId) {
  *             stations: [{ id, name, time, isBottleneck }],
  *             causalRules: [...], ecrsItems: [...] }}
  */
-export function fetchLineBalanceFull(lineId = 'line1') {
-  return request(`/api/line-balance/full?line=${lineId}`)
+export function fetchLineBalanceFull(lineId = 'line1', shift) {
+  let url = `/api/line-balance/full?line=${lineId}`
+  if (shift) url += `&shift=${shift}`
+  return request(url)
 }
 
 // ─── AI 对话页 ────────────────────────────────────────────────────────────────

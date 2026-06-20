@@ -38,6 +38,7 @@ router = APIRouter(prefix="/api/line-balance", tags=["line-balance"])
 def _compute_line_balance_context(
     session: Session,
     line: Optional[str] = None,
+    shift: Optional[str] = None,
     range_hours: float = 8.0,
 ) -> dict:
     """Compute shared line balance context used by both /summary and /full.
@@ -45,12 +46,13 @@ def _compute_line_balance_context(
     Args:
         session: Database session.
         line: Optional line filter to scope station metrics.
+        shift: Optional shift filter (e.g. "morning", "afternoon").
         range_hours: Look-back window in hours (passed to get_station_metrics).
 
     Returns a dict with keys: station_data, stations, lbr, si, bottleneck,
     takt_time, avg_d.
     """
-    station_data = get_station_metrics(session, range_hours=168.0, line=line)
+    station_data = get_station_metrics(session, range_hours=168.0, line=line, shift=shift)
     n = len(station_data) if station_data else 1
     avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
 
@@ -102,11 +104,18 @@ def line_balance_summary(
 @router.get("/full")
 def line_balance_full(
     line: str = Query(""),
+    shift: str = Query(""),
     session: Session = Depends(get_db_session),
     _user: dict = Depends(require_read_all),
 ):
-    """Get complete line balance data with ECRS suggestions."""
-    ctx = _compute_line_balance_context(session, line=line)
+    """Get complete line balance data with ECRS suggestions.
+
+    Args:
+        line: Optional line name filter.
+        shift: Optional shift filter (e.g. "morning", "afternoon").
+    """
+    shift_val = shift or None
+    ctx = _compute_line_balance_context(session, line=line, shift=shift_val)
     stations = ctx["stations"]
 
     # Compute per-station efficiency (effective work ratio)

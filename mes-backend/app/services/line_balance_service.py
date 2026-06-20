@@ -23,6 +23,7 @@ def get_station_metrics(
     range_hours: float = 8.0,
     range_start: Optional[datetime] = None,
     line: Optional[str] = None,
+    shift: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get per-station average operation time from recent segments.
 
@@ -33,9 +34,11 @@ def get_station_metrics(
                      of computing from range_hours.
         line: Optional line filter. When provided, only segments matching
               this line are included.
+        shift: Optional shift filter. When provided, only records matching
+               this shift are included (e.g. "morning", "afternoon").
 
     Returns:
-        List of dicts with keys: name, time (ms), count.
+        List of dicts with keys: name, time (ms), count, shift.
     """
     range_hours = range_hours or 168.0  # default 7 days
     if range_start is None:
@@ -44,6 +47,7 @@ def get_station_metrics(
 
     query = session.query(
         WorktimeRecord.station_id,
+        WorktimeRecord.shift,
         func.avg(WorktimeRecord.actual_ms).label("avg_duration"),
         func.count(WorktimeRecord.id).label("seg_count"),
     ).filter(
@@ -57,15 +61,22 @@ def get_station_metrics(
         ).distinct()
         query = query.filter(WorktimeRecord.station_id.in_(subq))
 
-    results = query.group_by(WorktimeRecord.station_id).all()
+    if shift:
+        query = query.filter(WorktimeRecord.shift == shift)
+
+    results = query.group_by(WorktimeRecord.station_id, WorktimeRecord.shift).all()
 
     station_data = []
     for r in results:
         if r.seg_count > 0:
+            # Clamp negative durations to 0; negative work time is physically
+            # impossible and violates schema constraints (StationInfo.time >= 0).
+            avg_ms = max(float(r.avg_duration), 0.0)
             station_data.append({
                 "name": r.station_id,
-                "time": round(float(r.avg_duration) / 1000.0, 3),
+                "time": round(avg_ms / 1000.0, 3),
                 "count": r.seg_count,
+                "shift": r.shift,
             })
     return station_data
 

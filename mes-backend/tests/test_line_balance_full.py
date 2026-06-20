@@ -177,3 +177,130 @@ class TestLineBalanceFull:
         # Default is line1 (Query default), so only line1 data
         # Actually the Query default is "line1" so this tests default behavior
         assert len(stations) > 0, "Should have station data"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Bug: aggregate_segments(station_id=None) 把多工位数据合并到 "default"
+    # ─────────────────────────────────────────────────────────────────────
+
+    def test_multi_worker_aggregation_preserves_stations(self, client, auth_headers, test_db_url):
+        """
+        RED: aggregate_segments(station_id=None) 必须保留每个工位的 station_id。
+
+        当 ProcessSegments 来自多个不同 station_id，调用
+        aggregate_segments(session, station_id=None, shift=...) 后，
+        WorktimeRecord 必须按 (station_id, action) 分别创建，
+        而不是把所有站点的数据合并到 station_id="default"。
+
+        验证方法：插入多个工位的 segment，调用 aggregate_segments
+        不传 station_id，然后检查 balance API 返回所有工位。
+        """
+        from app.services.worktime_aggregator import aggregate_segments
+
+        session = get_session(test_db_url)
+        now = datetime.now(timezone.utc)
+
+        # 清空已有 seed_two_lines 的数据
+        session.query(WorktimeRecord).delete()
+        session.query(ProcessSegment).delete()
+        session.commit()
+
+        # 在 4 个不同的站上创建 ProcessSegments
+        # 对应 = 4 个不同的操作者
+        stations_workers = [
+            ("WS-01", "assembly", ActionLabel.ASSEMBLE.value, 5000.0),
+            ("WS-02", "assembly", ActionLabel.ASSEMBLE.value, 3000.0),
+            ("WS-03", "reach", ActionLabel.REACH.value, 2000.0),
+            ("WS-04", "inspect", ActionLabel.INSPECT.value, 4000.0),
+        ]
+        for station_id, op, action, dur_ms in stations_workers:
+            seg = ProcessSegment(
+                camera_id="cam_0",
+                station_id=station_id,
+                line="assembly-line",
+                action=action,
+                therblig_symbol="RE" if action == ActionLabel.REACH.value else "A",
+                start_time=now - timedelta(hours=1),
+                end_time=now,
+                duration_ms=dur_ms,
+                confidence=0.9,
+                shift="morning",
+            )
+            session.add(seg)
+        session.commit()
+
+        # 模拟 Celery 定期任务调用
+        aggregate_segments(session, station_id=None, shift="morning")
+        session.commit()
+
+        # 验证 WorktimeRecord 中的 station_id
+        records = session.query(WorktimeRecord).all()
+        record_stations = {r.station_id for r in records}
+
+        # RED: 当前 bug 导致所有 station_id="default"，只有 1 个工位
+        # GREEN 期望: 4 个工位都被保留
+        assert len(record_stations) >= 4, (
+            f"RED: Expected at least 4 distinct station_ids, got {len(record_stations)}: {record_stations}. "
+            f"Bug: aggregate_segments(station_id=None) merged all into 'default'."
+        )
+
+        session.close()
+
+    def test_multi_worker_balance_api_returns_all_stations(self, client, auth_headers, test_db_url):
+        """
+        RED: 多工位数据聚合后，balance API 应返回所有工位的工时。
+
+        步骤：
+        1. 创建 4 个不同 station_id 的 WorktimeRecord
+        2. 调用 /api/line-balance/full
+        3. 确认返回了全部 4 个工位
+        """
+        session = get_session(test_db_url)
+
+        # 清空已有数据
+        session.query(WorktimeRecord).delete()
+        session.commit()
+
+        now = datetime.now(timezone.utc)
+
+        # 直接创建 WorktimeRecords（模拟正确聚合的结果）
+        records = [
+            WorktimeRecord(
+                operation="assembly", station_id="WS-01",
+                actual_ms=5000.0, standard_ms=4800.0, efficiency=0.96,
+                mod_total=38.0, shift="morning",
+            ),
+            WorktimeRecord(
+                operation="assembly", station_id="WS-02",
+                actual_ms=3000.0, standard_ms=2900.0, efficiency=0.97,
+                mod_total=23.0, shift="morning",
+            ),
+            WorktimeRecord(
+                operation="reach", station_id="WS-03",
+                actual_ms=2000.0, standard_ms=1800.0, efficiency=0.90,
+                mod_total=15.0, shift="morning",
+            ),
+            WorktimeRecord(
+                operation="inspect", station_id="WS-04",
+                actual_ms=4000.0, standard_ms=3800.0, efficiency=0.95,
+                mod_total=30.0, shift="morning",
+            ),
+        ]
+        session.add_all(records)
+        session.commit()
+        session.close()
+
+        resp = client.get("/api/line-balance/full", headers=auth_headers)
+        assert resp.status_code == 200, f"Expected 200 got {resp.status_code}: {resp.text}"
+        data = resp.json().get("data", {})
+        stations = data.get("stations", [])
+        station_names = [s["name"] for s in stations]
+
+        assert len(stations) >= 4, (
+            f"RED: Expected 4 stations but got {len(stations)}: {station_names}. "
+            f"Bug: balance API only shows one station's data."
+        )
+        for sname in ["WS-01", "WS-02", "WS-03", "WS-04"]:
+            assert sname in station_names, (
+                f"RED: Station {sname} missing from balance API response. "
+                f"Got: {station_names}"
+            )

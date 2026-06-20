@@ -145,6 +145,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart, RadarChart } from 'echarts/charts'
 import {
@@ -273,7 +274,9 @@ async function loadData() {
 async function loadPhase5Data() {
   // Load line balance data for radar chart
   try {
-    const lb = await fetchLineBalanceFull('line1')
+    const route = useRoute()
+    const lineName = route.query.line || '组装产线'
+    const lb = await fetchLineBalanceFull(lineName)
     if (lb && lb.stations && lb.stations.length > 0) {
       lbChartData.value = lb
       await nextTick()

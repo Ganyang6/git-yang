@@ -127,6 +127,43 @@ class TestGenerateEcrsSuggestionsUnitAware:
     without dividing by 1000 again.
     """
 
+    @patch("app.services.line_balance_service.datetime")
+    def test_negative_avg_duration_clamped_to_zero(self, mock_datetime):
+        """RED: negative avg_duration must NOT produce negative time.
+
+        When actual_ms is negative (data error), the 'time' field must be
+        clamped to 0.0 seconds instead of producing a negative value that
+        violates StationInfo.time >= 0.
+        """
+        from app.services.line_balance_service import get_station_metrics
+
+        from datetime import datetime, timezone
+        fixed_now = datetime(2026, 6, 10, 10, 0, 0, tzinfo=timezone.utc)
+        mock_datetime.now.return_value = fixed_now
+        mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
+
+        mock_row = MagicMock()
+        mock_row.station_id = "w1"
+        mock_row.avg_duration = -449.18  # negative ms (as seen in prod)
+        mock_row.seg_count = 2
+
+        mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.group_by.return_value = mock_query
+        mock_query.all.return_value = [mock_row]
+
+        mock_session = MagicMock()
+        mock_session.query.return_value = mock_query
+
+        result = get_station_metrics(mock_session)
+
+        assert len(result) == 1
+        assert result[0]["time"] == 0.0, (
+            f"RED: Expected time=0.0 for negative avg_duration, "
+            f"got {result[0]['time']}. Negative time violates schema ge=0.0."
+        )
+
     def test_simplify_suggestion_shows_seconds(self):
         """Simplify suggestion should display time in seconds correctly."""
         from app.services.line_balance_service import generate_ecrs_suggestions

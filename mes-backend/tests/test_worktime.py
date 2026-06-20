@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.database import (
     Base,
     ProcessSegment,
+    Station,
     TherbligDetail,
     WorktimeRecord,
     get_session,
@@ -183,6 +184,55 @@ class TestSaveSegment:
         segment = save_segment(db_session, event)
         assert segment.shift == "night"
 
+    def test_save_segment_sets_line_from_station(self, db_session):
+        """验证 save_segment 从 Station 表正确查找并设置 line 字段"""
+        # Arrange: 创建 Station 记录
+        station = Station(
+            name="station_1",
+            worker="测试员",
+            line="组装产线",
+            shift="早班",
+        )
+        db_session.add(station)
+        db_session.commit()
+
+        # Act: 创建 segment 事件（station_id 匹配 Station.name）
+        event = make_segment_event(
+            ActionLabel.ASSEMBLE, duration_ms=5000.0, start_time=1000.0,
+        )
+        segment = save_segment(db_session, event)
+
+        # Assert: line 字段应从 Station 表获取
+        assert segment.line == "组装产线", (
+            f"RED: Expected line='组装产线' but got '{segment.line}'. "
+            f"save_segment() 未从 Station 表查找 line 字段"
+        )
+
+    def test_save_segment_empty_line_when_no_station(self, db_session):
+        """Station 表中无匹配记录时，line 字段应为空字符串"""
+        event = make_segment_event(
+            ActionLabel.ASSEMBLE, duration_ms=3000.0, start_time=1000.0,
+            station_id="nonexistent_station",
+        )
+        segment = save_segment(db_session, event)
+        assert segment.line == "", (
+            f"RED: Expected line='' but got '{segment.line}' for unknown station"
+        )
+
+    def test_save_segment_clamps_negative_duration(self, db_session):
+        """Layer 1: save_segment 入口截断负值 duration_ms 为 0"""
+        event = make_segment_event(
+            ActionLabel.ASSEMBLE, duration_ms=-500.0, start_time=1000.0,
+        )
+        segment = save_segment(db_session, event)
+        assert segment.duration_ms == 0.0, (
+            f"RED: Expected duration_ms=0.0 but got {segment.duration_ms}. "
+            f"save_segment() 未截断负值 duration_ms"
+        )
+        # 确认其他字段正常保存
+        assert segment.id is not None
+        assert segment.action == "assemble"
+
 
 class TestGetRecentSegments:
     def test_empty_db(self, db_session):
@@ -227,6 +277,37 @@ class TestAggregateSegments:
         actions = {r.operation for r in records}
         assert "assembly" in actions
         assert "reach" in actions
+
+    def test_aggregate_negative_duration(self, db_session):
+        """Layer 2: aggregate_segments 聚合时净化负值 duration_ms 为 0"""
+        # 插入一个负值 duration_ms 的 segment（模拟 Layer 1 未捕获的情况）
+        # 直接通过 ORM 插入，跳过 save_segment 的入口校验
+        from datetime import datetime, timezone
+        from app.models.schemas import TherbligSymbol
+
+        seg = ProcessSegment(
+            camera_id="cam_0",
+            station_id="station_1",
+            action="assemble",
+            therblig_symbol=TherbligSymbol.ASSEMBLE.value,
+            start_time=datetime(2026, 4, 2, 7, 0, tzinfo=timezone.utc),
+            end_time=datetime(2026, 4, 2, 7, 5, tzinfo=timezone.utc),
+            duration_ms=-800.0,
+            confidence=0.8,
+            shift="morning",
+            line="",
+        )
+        db_session.add(seg)
+        db_session.commit()
+
+        # 聚合时不应抛出异常，且 actual_ms 应为 0（而非负值）
+        records = aggregate_segments(db_session, shift="morning")
+        assembly = [r for r in records if r.operation == "assembly"]
+        assert len(assembly) >= 1, "应有聚合生成的 assembly 记录"
+        assert assembly[0].actual_ms >= 0, (
+            f"RED: Expected actual_ms >= 0 but got {assembly[0].actual_ms}. "
+            f"aggregate_segments() 未净化负值 duration_ms"
+        )
 
 
 class TestGetWorktimeSummary:

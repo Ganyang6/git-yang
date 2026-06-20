@@ -1,4 +1,8 @@
-review_state = pending
+review_state = cleared
+# fix_type = root_cause
+# Reviewed: 2026-06-20 — get_station_metrics group_by shift + Reports hardcoded line1 fix
+# Findings: 4 x P2 (group_by duplication risk, missing shift tests, default line name diff, silent clamp)
+# See: workspace-review/code_review_report_groupby_shift_2026-06-20.md
 
 # Phase I (cont.): Video timestamp bug fix — TDD implementation
 #
