@@ -28,7 +28,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
 # Ensure project root is on path
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
@@ -43,12 +43,15 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ──────────────────────────────────────────────────────
 
-SKELETON_DIR = os.path.join(os.path.dirname(_project_root), "data", "skeleton")
+SKELETON_DIR = os.path.join(_project_root, "data", "skeleton")
+AUGMENTED_SKELETON_DIR = os.path.join(_project_root, "data", "skeleton_augmented")
+# Use augmented data by default; set to SKELETON_DIR for original-only
+ACTIVE_SKELETON_DIR = AUGMENTED_SKELETON_DIR if os.path.isdir(AUGMENTED_SKELETON_DIR) else SKELETON_DIR
 VIDEO_DIR = os.path.join(
     os.path.dirname(os.path.dirname(_project_root)), "data", "videos"
 )
 if not os.path.isdir(VIDEO_DIR):
-    VIDEO_DIR = os.path.join(os.path.dirname(_project_root), "data", "videos")
+    VIDEO_DIR = os.path.join(_project_root, "data", "videos")
 MODEL_DIR = os.path.dirname(MODEL_PATH)
 FIXED_T = 64  # Pad/truncate all sequences to 64 frames
 BATCH_SIZE = 4
@@ -112,15 +115,32 @@ def _to_stgcn_format(skeleton: np.ndarray) -> np.ndarray:
 class SkeletonActionDataset(Dataset):
     """Dataset loading skeleton .npy files with labels from process_segments."""
 
+    AUGMENT_SUFFIXES = {"orig", "fast", "slow", "midfast", "vslow",
+                            "noise_low", "noise_high", "flip", "tmask", "jdrop",
+                            "fast_noise", "slow_flip", "fast_tmask"}
+
     def __init__(
         self,
         skeleton_dir: str = SKELETON_DIR,
         db_url: str | None = None,
         label_map: Optional[Dict[str, int]] = None,
+        use_filename_labels: bool = False,
     ):
         self.label_map = label_map or LABEL_TO_IDX
         self.samples: List[Tuple[np.ndarray, int]] = []
-        self._load(skeleton_dir, db_url)
+        self._skeleton_dir = skeleton_dir
+        if use_filename_labels:
+            self._load_from_filenames(skeleton_dir, db_url)
+        else:
+            self._load(skeleton_dir, db_url)
+
+    @property
+    def skeleton_dir(self) -> str:
+        return self._skeleton_dir
+
+    @skeleton_dir.setter
+    def skeleton_dir(self, value: str) -> None:
+        self._skeleton_dir = value
 
     def _load(self, skeleton_dir: str, db_url: str | None) -> None:
         """Load skeleton files and match with DB labels."""
@@ -141,6 +161,8 @@ class SkeletonActionDataset(Dataset):
 
         if not segments:
             logger.warning("No labeled segments found in database!")
+            # Fallback: try filename-based label extraction
+            self._load_from_filenames(skeleton_dir, db_url)
             return
 
         # Count how many per action
@@ -159,9 +181,23 @@ class SkeletonActionDataset(Dataset):
         # The skeleton filename (without _skeleton.npy) should match a video
         # file basename. Use the video file's modification time to find
         # overlapping process segments.
-        skeleton_files = sorted([
-            f for f in os.listdir(skeleton_dir) if f.endswith("_skeleton.npy")
-        ])
+        # Collect skeleton files: original (_skeleton.npy) and augmented (with known suffixes)
+        all_files = sorted(os.listdir(skeleton_dir))
+        skeleton_files = []
+        for f in all_files:
+            if not f.endswith(".npy"):
+                continue
+            if f.endswith("_skeleton.npy"):
+                skeleton_files.append(f)
+            else:
+                # Check if this is an augmented file by parsing suffix
+                base_no_ext = f.replace(".npy", "")
+                parts = base_no_ext.rsplit("_", 1)
+                if len(parts) == 2 and parts[1] in self.AUGMENT_SUFFIXES:
+                    skeleton_files.append(f)
+                else:
+                    # Unknown format, still include it
+                    skeleton_files.append(f)
         logger.info("Found %d skeleton files", len(skeleton_files))
 
         loaded = 0
@@ -170,8 +206,19 @@ class SkeletonActionDataset(Dataset):
             fpath = os.path.join(skeleton_dir, fname)
             skeleton = np.load(fpath)  # (T, V, 3)
 
-            # Extract video basename (e.g., "4e22ace7-..." from "4e22ace7-..._skeleton.npy")
-            video_basename = fname.replace("_skeleton.npy", "")
+            # Extract video basename from filename
+            # Original: "4e22ace7-..._skeleton.npy" → "4e22ace7-..."
+            # Augmented: "4e22ace7-..._fast.npy" → "4e22ace7-..."
+            if fname.endswith("_skeleton.npy"):
+                video_basename = fname.replace("_skeleton.npy", "")
+            else:
+                # Strip the augmentation suffix (last _part)
+                base = fname.replace(".npy", "")
+                parts = base.rsplit("_", 1)
+                if len(parts) == 2 and parts[1] in self.AUGMENT_SUFFIXES:
+                    video_basename = parts[0]
+                else:
+                    video_basename = base
 
             # Look for a matching video file to determine recording time
             video_path = self._find_video(video_basename)
@@ -224,6 +271,65 @@ class SkeletonActionDataset(Dataset):
             "Dataset loaded: %d samples (%d skipped)",
             loaded, skipped,
         )
+
+    def _load_from_filenames(self, skeleton_dir: str, db_url: str | None) -> None:
+        """Load skeleton files with labels encoded in filenames.
+        
+        Format: {prefix}_{label}_{index:05d}.npy  where label is an integer.
+        Example: ha4m_3_00123.npy, synth_0_00001.npy
+        """
+        import re
+        all_files = sorted(os.listdir(skeleton_dir))
+        loaded = 0
+        skipped = 0
+        pattern = re.compile(r'^[a-zA-Z][a-zA-Z0-9]*_(\d+)_\d+\.npy$')
+        
+        for fname in all_files:
+            if not fname.endswith('.npy'):
+                continue
+            match = pattern.match(fname)
+            if not match:
+                skipped += 1
+                continue
+            
+            label = int(match.group(1))
+            if label < 0 or label >= NUM_CLASSES:
+                logger.warning("Label %d out of range (0-%d) for '%s'", label, NUM_CLASSES-1, fname)
+                skipped += 1
+                continue
+            
+            fpath = os.path.join(skeleton_dir, fname)
+            skeleton = np.load(fpath)  # (C, T, V, 1) or (T, V, 3)
+            
+            # Handle different input shapes
+            if skeleton.ndim == 4:  # Already ST-GCN format (C, T, V, 1)
+                if skeleton.shape[0] == 3 and skeleton.shape[3] == 1:
+                    pass  # Already ST-GCN format
+                elif skeleton.shape[3] == 1 and skeleton.shape[0] != 3:
+                    skeleton = skeleton.transpose(3, 0, 1, 2)  # try fix
+            elif skeleton.ndim == 3:  # (T, V, 3) - needs preprocessing
+                skeleton = _normalize_skeleton(skeleton)
+                skeleton = _to_fixed_length(skeleton, FIXED_T)
+                skeleton = _to_stgcn_format(skeleton)
+            
+            # Ensure (C, T, V, 1) format
+            if skeleton.ndim == 3:
+                skeleton = skeleton[np.newaxis, ...]
+            if skeleton.shape[0] != 3 or skeleton.ndim != 4:
+                logger.warning("Unexpected shape %s for '%s', trying transpose", skeleton.shape, fname)
+                if skeleton.ndim == 4:
+                    # Try (T, C, V, 1) -> (C, T, V, 1)
+                    if skeleton.shape[3] == 1:
+                        skeleton = skeleton.transpose(1, 0, 2, 3)
+                        if skeleton.shape[0] != 3:
+                            logger.warning("Cannot handle shape %s for '%s'", skeleton.shape, fname)
+                            skipped += 1
+                            continue
+            
+            self.samples.append((skeleton, label))
+            loaded += 1
+        
+        logger.info("Filename-based loading: %d loaded, %d skipped", loaded, skipped)
 
     @staticmethod
     def _find_video(basename: str) -> Optional[str]:
@@ -353,7 +459,7 @@ def evaluate(
     return total_loss / len(loader), accuracy
 
 
-def main():
+def main(use_original: bool = False, data_dir: str | None = None):
     logger.info("=" * 60)
     logger.info("ST-GCN Training")
     logger.info("=" * 60)
@@ -361,11 +467,18 @@ def main():
     # ── Dataset ──
     db_url = os.environ.get("MES_DB_URL", "sqlite:///data/mes.db")
     logger.info("Database: %s", db_url)
-    logger.info("Skeleton dir: %s", SKELETON_DIR)
 
+    use_filename_labels = data_dir is not None
+    if data_dir:
+        skeleton_source = data_dir
+        logger.info("Skeleton dir: %s (custom, filename labels)", skeleton_source)
+    else:
+        skeleton_source = SKELETON_DIR if use_original else ACTIVE_SKELETON_DIR
+        logger.info("Skeleton dir: %s (augmented=%s)", skeleton_source, not use_original and ACTIVE_SKELETON_DIR == AUGMENTED_SKELETON_DIR)
     full_dataset = SkeletonActionDataset(
-        skeleton_dir=SKELETON_DIR,
+        skeleton_dir=skeleton_source,
         db_url=db_url,
+        use_filename_labels=use_filename_labels,
     )
 
     if len(full_dataset) == 0:
@@ -474,4 +587,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Train ST-GCN on skeleton data")
+    parser.add_argument("--original", action="store_true",
+                        help="Use original data only (no augmentation)")
+    parser.add_argument("--data-dir", type=str, default=None,
+                        help="Custom skeleton data directory")
+    args = parser.parse_args()
+    main(use_original=args.original, data_dir=args.data_dir)

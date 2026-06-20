@@ -29,6 +29,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from app.models.database import (
+        get_session,
     Base,
     Customer,
     Equipment,
@@ -473,7 +474,8 @@ def main():
     db_url = os.environ.get("MES_DB_URL", "sqlite:///data/mes.db")
     logger.info("Database: %s", db_url)
 
-    session = init_db(db_url)
+    init_db(db_url)
+    session = get_session(db_url)
 
     try:
         if not selected or "customers" in selected:

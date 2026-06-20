@@ -7,7 +7,7 @@ from collections import Counter
 
 import torch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.ml.stgcn_model import STGCNClassifier, MODEL_PATH, LABEL_NAMES
 
 model = STGCNClassifier()
@@ -16,7 +16,7 @@ print(f"=== ST-GCN Model ===")
 print(f"Parameters: {params:,}")
 print(f"Classes ({len(LABEL_NAMES)}): {', '.join(LABEL_NAMES)}")
 
-skel_dir = "data/skeleton"
+skel_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "skeleton")
 files = sorted([f for f in os.listdir(skel_dir) if f.endswith("_skeleton.npy")])
 print(f"\n=== Inference on {len(files)} skeleton sequences ===")
 
