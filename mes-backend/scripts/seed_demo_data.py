@@ -337,6 +337,7 @@ def seed_process_segments(session) -> int:
                         seg = ProcessSegment(
                             camera_id=camera,
                             station_id=station,
+                            line='组装产线',
                             action=action_name,
                             therblig_symbol=symbol,
                             start_time=current_time,
