@@ -14,8 +14,10 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
+import yaml
 from fastapi import Depends, FastAPI, Request
 from app.core.errors import AppError
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +50,25 @@ from app.api.deps import require_auth
 from app.core.metrics import tasks_created, tasks_completed, tasks_failed, tasks_archived
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
+
+def get_database_path() -> str:
+    """从 config.yaml 读取数据库文件路径。
+
+    Returns:
+        解析后的绝对路径字符串。
+        如果 config.yaml 中未配置，返回默认值 "data/mes.db"。
+    """
+    config_path = Path(__file__).parent.parent / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    else:
+        config = {}
+    db_path = config.get("database", {}).get("path", "data/mes.db")
+    # 相对于项目根目录（mes-backend 目录）
+    base = Path(__file__).parent.parent
+    return str((base / db_path).resolve())
+
 
 logger = logging.getLogger("mes_backend")
 logging.basicConfig(

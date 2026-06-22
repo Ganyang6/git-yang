@@ -103,6 +103,15 @@ def save_segment(
         )
         event.duration_ms = 0.0
 
+    # Layer 2: Clamp excessive duration_ms (>5min / 300s) for anomaly segments
+    MAX_SEGMENT_MS = 300_000  # 5 minutes upper limit
+    if event.duration_ms is not None and event.duration_ms > MAX_SEGMENT_MS:
+        logger.warning(
+            "截断异常段: station=%s, action=%s, duration=%.2fms",
+            event.station_id, event.action.value, event.duration_ms,
+        )
+        event.duration_ms = MAX_SEGMENT_MS
+
     segment = ProcessSegment(
         camera_id=event.camera_id,
         station_id=event.station_id,

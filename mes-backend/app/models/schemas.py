@@ -333,6 +333,8 @@ class AiContext(BaseModel):
     utilization: float = Field(default=0.0, ge=0.0, le=1.0)
     stdtimeAchievement: float = Field(default=0.0, ge=0.0, le=1.0)
     wasteRatio: float = Field(default=0.0, ge=0.0, le=1.0)
+    therbligDistribution: List[Dict] = Field(default_factory=list)
+    therbligSummary: Dict = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

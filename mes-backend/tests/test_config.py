@@ -191,3 +191,14 @@ hand_estimation:
         assert config.hand_estimation.enabled is True
         assert config.hand_estimation.num_hands == 2
         assert config.hand_estimation.min_detection_confidence == pytest.approx(0.5)
+
+
+class TestDatabasePath:
+    """get_database_path() 从 config.yaml 读取数据库路径"""
+
+    def test_database_path_from_config(self):
+        """验证数据库路径从 config.yaml 读取"""
+        from app.main import get_database_path
+        path = get_database_path()
+        assert path is not None
+        assert path.endswith('.db')

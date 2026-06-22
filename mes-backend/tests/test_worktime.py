@@ -233,6 +233,29 @@ class TestSaveSegment:
         assert segment.id is not None
         assert segment.action == "assemble"
 
+    def test_save_segment_clamps_excessive_duration(self, db_session):
+        """Layer 1: save_segment 入口截断 >300s 的异常段"""
+        event = make_segment_event(
+            ActionLabel.ASSEMBLE, duration_ms=500_000.0, start_time=1000.0,
+        )
+        segment = save_segment(db_session, event)
+        assert segment.duration_ms == 300_000.0, (
+            f"RED: Expected duration_ms=300000.0 but got {segment.duration_ms}. "
+            f"save_segment() 未截断超长 duration_ms"
+        )
+        assert segment.id is not None
+        assert segment.action == "assemble"
+
+    def test_save_segment_keeps_normal_duration(self, db_session):
+        """正常 duration (<300s) 不会被截断"""
+        event = make_segment_event(
+            ActionLabel.REACH, duration_ms=120_000.0, start_time=1000.0,
+        )
+        segment = save_segment(db_session, event)
+        assert segment.duration_ms == 120_000.0, (
+            f"Expected duration_ms=120000.0 but got {segment.duration_ms}"
+        )
+
 
 class TestGetRecentSegments:
     def test_empty_db(self, db_session):

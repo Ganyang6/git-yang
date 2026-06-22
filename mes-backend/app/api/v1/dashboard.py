@@ -28,7 +28,7 @@ from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.models.database import (
-    ProcessSegment, Station, Equipment, Order, WorktimeRecord,
+    ProcessSegment, Station, Equipment, Order, WorktimeRecord, TherbligDetail,
 )
 from app.models.schemas import (
     ApiResponse, DashboardKpi, AiContext,
@@ -73,6 +73,72 @@ def _clear_cache() -> None:
         _ctx_cache.clear()
 
 router = APIRouter(tags=["dashboard"])
+
+
+def get_therblig_distribution(
+    session: Session,
+    line: str | None = None,
+) -> dict:
+    """获取动素分布数据，用于 AI context。
+
+    Returns:
+        dict: {
+            'distribution': List[{
+                'symbol', 'name', 'total_ms', 'pct', 'isWaste'
+            }],
+            'total': len(distribution),
+            'wasteCount': int,
+            'wasteRatio': float,
+        }
+    """
+    from sqlalchemy import func
+
+    query = session.query(
+        TherbligDetail.symbol,
+        func.sum(TherbligDetail.actual_ms).label('total_ms'),
+        func.sum(TherbligDetail.pct).label('pct'),
+        TherbligDetail.is_waste,
+        TherbligDetail.name,
+    )
+
+    # Join through WorktimeRecord and ProcessSegment for line filtering
+    if line:
+        query = query.join(
+            TherbligDetail.worktime_record
+        ).join(
+            ProcessSegment,
+            ProcessSegment.worktime_record_id == WorktimeRecord.id,
+        ).filter(
+            ProcessSegment.line == line,
+        )
+
+    results = query.group_by(TherbligDetail.symbol).all()
+
+    symbol_names = {
+        'R': '伸手', 'G': '抓取', 'M': '移动', 'A': '装配',
+        'RL': '释放', 'I': '检验', 'H': '握持', 'UD': '非生产性延误',
+        'AD': '可避免延误', 'ST': '等待',
+    }
+
+    distribution = []
+    for r in results:
+        name = symbol_names.get(r.symbol, r.name or r.symbol)
+        distribution.append({
+            'symbol': r.symbol,
+            'name': name,
+            'total_ms': float(r.total_ms or 0),
+            'pct': round(float(r.pct or 0), 1) if r.pct else 0,
+            'isWaste': bool(r.is_waste),
+        })
+
+    waste_count = sum(1 for d in distribution if d['isWaste'])
+
+    return {
+        'distribution': distribution,
+        'total': len(distribution),
+        'wasteCount': waste_count,
+        'wasteRatio': round(waste_count / max(len(distribution), 1) * 100, 1),
+    }
 
 
 def _compute_hur_and_wait(segments):
@@ -195,7 +261,7 @@ def dashboard_kpi(
             "balanceRate_hasData": False,
             "waitLossMinutes": 0.0,
             "waitLossMinutes_hasData": False,
-            "trends": {"utilization": 0, "stdtimeAchievement": 0, "balanceRate": 0, "waitLossMinutes": 0},
+            "trends": {"utilization": 0.0, "stdtimeAchievement": 0.0, "balanceRate": 0.0, "waitLossMinutes": 0.0},
         })
         _set_cache(cache_key, data)
         return ApiResponse(data=data, timestamp=time.time())
@@ -235,6 +301,77 @@ def dashboard_kpi(
     # Wait loss in minutes
     wait_loss_min = wait_ms / 60000.0
 
+    # ── Trend computation: compare with previous period ───────────────
+    # Determine previous period range
+    if range_param == "week":
+        prev_range_start = now_sh - timedelta(days=14)
+        prev_range_end = now_sh - timedelta(days=7)
+    elif range_param == "month":
+        prev_range_start = now_sh - timedelta(days=60)
+        prev_range_end = now_sh - timedelta(days=30)
+    else:
+        # today: compare with yesterday
+        prev_range_start = (now_sh - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        prev_range_end = now_sh.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    prev_range_start = prev_range_start.astimezone(timezone.utc)
+    prev_range_end = prev_range_end.astimezone(timezone.utc)
+
+    # Query previous period segment stats
+    prev_stats_query = session.query(
+        func.sum(ProcessSegment.duration_ms).label("total_ms"),
+        func.sum(case((ProcessSegment.action == "wait", ProcessSegment.duration_ms), else_=0)).label("wait_ms"),
+        func.sum(case((ProcessSegment.action == "idle", ProcessSegment.duration_ms), else_=0)).label("idle_ms"),
+    ).filter(
+        ProcessSegment.start_time >= prev_range_start,
+        ProcessSegment.start_time < prev_range_end,
+    )
+    if line:
+        prev_stats_query = prev_stats_query.filter(ProcessSegment.line == line)
+    prev_stats = prev_stats_query.first()
+
+    prev_total_ms = float(prev_stats.total_ms or 0)
+    prev_wait_ms = float(prev_stats.wait_ms or 0)
+    prev_idle_ms = float(prev_stats.idle_ms or 0)
+    prev_effective_ms = prev_total_ms - prev_wait_ms - prev_idle_ms
+    prev_t_total = max(prev_total_ms, 1)
+    prev_hur = prev_effective_ms / prev_t_total if prev_total_ms > 0 else 0.0
+
+    # Previous period standard time achievement
+    prev_action_counts = session.query(
+        ProcessSegment.action,
+        func.count(ProcessSegment.id).label("cnt"),
+    ).filter(
+        ProcessSegment.start_time >= prev_range_start,
+        ProcessSegment.start_time < prev_range_end,
+    )
+    if line:
+        prev_action_counts = prev_action_counts.filter(ProcessSegment.line == line)
+    prev_action_counts = prev_action_counts.group_by(ProcessSegment.action).all()
+
+    prev_total_mod_ms = 0.0
+    for action, cnt in prev_action_counts:
+        mod_val = mod_map.get(action, 0.0)
+        prev_total_mod_ms += cnt * mod_val * mod_unit * 1000
+
+    prev_std_achievement = min(prev_total_mod_ms / prev_t_total, 1.0) if prev_t_total > 0 else 0.0
+
+    # Previous period line balance rate
+    prev_lbr, _, _ = compute_line_balance_rate(
+        session, range_start=prev_range_start, line=line_filter
+    )
+
+    # Previous period wait loss minutes
+    prev_wait_loss_min = prev_wait_ms / 60000.0
+
+    # Compute trends as differences (current - previous)
+    trends = {
+        "utilization": round(hur - prev_hur, 4),
+        "stdtimeAchievement": round(std_achievement - prev_std_achievement, 4),
+        "balanceRate": round((lbr or 0.0) - (prev_lbr or 0.0), 4),
+        "waitLossMinutes": round(wait_loss_min - prev_wait_loss_min, 1),
+    }
+
     data = validate_response_data(DashboardKpi, {
         "utilization": round(hur, 4),
         "utilization_hasData": True,
@@ -244,7 +381,7 @@ def dashboard_kpi(
         "balanceRate_hasData": True,
         "waitLossMinutes": round(wait_loss_min, 1),
         "waitLossMinutes_hasData": True,
-        "trends": {"utilization": 0, "stdtimeAchievement": 0, "balanceRate": 0, "waitLossMinutes": 0},
+        "trends": trends,
     })
 
     _set_cache(cache_key, data)
@@ -353,6 +490,9 @@ def ai_context(
     avg_d = sum(s["time"] for s in station_data) / n if station_data else 0
     lost_capacity = (max_d - avg_d) * n if station_data else 0.0
 
+    # ── Therblig 动素分布 ─────────────────────────────────────
+    therblig = get_therblig_distribution(session, line_filter)
+
     data = validate_response_data(AiContext, {
         "balanceRate": round(lbr, 4) if lbr is not None else None,
         "bottleneckStation": bottleneck,
@@ -361,6 +501,12 @@ def ai_context(
         "utilization": round(hur, 4),
         "stdtimeAchievement": round(std_achievement, 4),
         "wasteRatio": round(waste_ratio, 4),
+        "therbligDistribution": therblig.get('distribution', []),
+        "therbligSummary": {
+            "totalSymbols": therblig.get('total', 0),
+            "wasteCount": therblig.get('wasteCount', 0),
+            "wasteRatio": therblig.get('wasteRatio', 0),
+        },
     })
 
     _set_cache("ai_context", data)
